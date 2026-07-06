@@ -53,7 +53,7 @@ place you can *walk through*:
 
 ## 🚀 Quick start
 
-Requires Node ≥ 20 — **Node 24 LTS recommended** (`.node-version` is set
+Requires Node ≥ 22 — **Node 24 LTS recommended** (`.node-version` is set
 for fnm/asdf/mise). Development uses [pnpm](https://pnpm.io).
 
 ```sh

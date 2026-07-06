@@ -19,7 +19,7 @@
     "ASSETS.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "packageManager": "pnpm@11.10.0",
   "keywords": [

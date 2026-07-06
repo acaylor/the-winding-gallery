@@ -1,0 +1,41 @@
+{
+  "name": "the-winding-gallery",
+  "version": "0.1.0",
+  "description": "A fantasy 3D photo gallery — your photographs hung along an endless winding sky-path.",
+  "type": "module",
+  "bin": {
+    "winding-gallery": "bin/cli.js"
+  },
+  "scripts": {
+    "start": "node bin/cli.js",
+    "samples": "node scripts/make-sample-photos.js",
+    "test": "node --test"
+  },
+  "files": [
+    "bin/",
+    "server.js",
+    "public/",
+    "scripts/make-sample-photos.js",
+    "ASSETS.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "photo-gallery",
+    "three.js",
+    "3d",
+    "fantasy",
+    "photography",
+    "webgl"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/acaylor/the-winding-gallery.git"
+  },
+  "author": "AJ Caylor",
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.185.1"
+  }
+}

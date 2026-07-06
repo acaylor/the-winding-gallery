@@ -1,0 +1,4 @@
+node_modules/
+.DS_Store
+# generated sample plates — recreate with `npm run samples`
+photos/

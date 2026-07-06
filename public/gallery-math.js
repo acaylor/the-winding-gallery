@@ -1,0 +1,58 @@
+// Pure logic for The Winding Gallery — no DOM, no three.js.
+// Shared by the browser app (public/main.js) and the Node test suite.
+
+export const STEP = 0.5; // metres between path samples
+
+// Curvature of the walker's heading (radians per metre). Gentle overlapping
+// sines: the path wanders forever but can never turn tightly enough to knot.
+export function curvature(s) {
+  return 0.028 * Math.sin(s * 0.021 + 1.3) + 0.019 * Math.sin(s * 0.0093 + 4.1);
+}
+
+// Height of the causeway: a slow endless climb with rolling swells.
+export function pathHeight(s) {
+  return s * 0.02 + 1.4 * Math.sin(s * 0.023 + 2.0) + 0.6 * Math.sin(s * 0.061);
+}
+
+// Integrate the winding path out to arc-length `toS`, appending [x, y, z]
+// sample triples to state.pts. State carries the heading and cursor so the
+// path can be extended forever, incrementally.
+export function makePathState() {
+  return { pts: [], heading: 0, x: 0, z: 0 };
+}
+export function extendPath(state, toS) {
+  while (state.pts.length * STEP <= toS + 4) {
+    const s = state.pts.length * STEP;
+    state.pts.push([state.x, pathHeight(s), state.z]);
+    state.heading += curvature(s) * STEP;
+    state.x += Math.sin(state.heading) * STEP;
+    state.z -= Math.cos(state.heading) * STEP;
+  }
+  return state;
+}
+
+// Deterministic per-segment PRNG (mulberry32-style).
+export function seededRand(seed) {
+  let t = seed + 0x6d2b79f5;
+  return () => {
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// True mathematical modulo (JS % is a remainder and goes negative).
+export function mod(n, m) {
+  return ((n % m) + m) % m;
+}
+
+// Roman numerals, as is proper for a wizard's collection.
+export function romanize(n) {
+  const table = [
+    [1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'],
+    [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I'],
+  ];
+  let out = '';
+  for (const [v, r] of table) while (n >= v) { out += r; n -= v; }
+  return out || 'I';
+}

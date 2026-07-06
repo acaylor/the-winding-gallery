@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Winding Gallery</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏮</text></svg>">
+<link rel="stylesheet" href="/style.css">
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/three.module.js" } }
+</script>
+</head>
+<body>
+
+<canvas id="scene"></canvas>
+
+<!-- Loading veil -->
+<div id="veil">
+  <div class="veil-inner">
+    <div class="rune-ring"><div class="rune-ring-core"></div></div>
+    <h1 class="veil-title">The Winding Gallery</h1>
+    <p class="veil-sub" id="veil-status">Unrolling the path&hellip;</p>
+    <p class="veil-hint" id="veil-hint" hidden></p>
+    <button id="enter-btn" hidden>Step onto the path</button>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud" hidden>
+  <div id="hud-title">
+    <span class="hud-mark">✦</span> The Winding Gallery
+    <span id="hud-count"></span>
+  </div>
+
+  <div id="crosshair"><span></span></div>
+  <div id="gaze-label" hidden></div>
+
+  <div id="hint-pill">
+    <b>Click</b> to walk &nbsp;·&nbsp; <b>WASD</b> move &nbsp;·&nbsp; <b>Scroll</b> glide
+    &nbsp;·&nbsp; <b>E / Click</b> behold a plate &nbsp;·&nbsp; <b>H</b> hints
+  </div>
+</div>
+
+<!-- Inspection panel -->
+<aside id="plate-panel" hidden>
+  <div class="plate-rule"></div>
+  <p class="plate-kicker">From the collection</p>
+  <h2 id="plate-name">—</h2>
+  <p id="plate-number">Plate I</p>
+  <p id="plate-meta"></p>
+  <div class="plate-rule"></div>
+  <button id="plate-return">Return to the path <kbd>Esc</kbd></button>
+</aside>
+
+<script type="module" src="/main.js"></script>
+</body>
+</html>

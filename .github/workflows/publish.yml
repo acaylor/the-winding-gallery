@@ -14,16 +14,18 @@ jobs:
       contents: read
       id-token: write # OIDC token exchange with the npm registry
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
+          cache: pnpm
           registry-url: https://registry.npmjs.org
-      # trusted publishing requires npm CLI ≥ 11.5.1
+      # deps + tests via pnpm; the publish itself uses the npm CLI,
+      # which is what npm's trusted publishing requires (≥ 11.5.1)
       - run: npm install -g npm@latest
-      - run: npm ci
-      - run: npm test
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
       - name: Check tag matches package.json version
         run: |
           PKG_V="v$(node -p "require('./package.json').version")"

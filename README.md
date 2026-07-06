@@ -16,7 +16,8 @@ as you go.
 [![CI](https://github.com/acaylor/the-winding-gallery/actions/workflows/ci.yml/badge.svg)](https://github.com/acaylor/the-winding-gallery/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/the-winding-gallery?color=6e9b46&label=npm&logo=npm)](https://www.npmjs.com/package/the-winding-gallery)
 [![License: MIT](https://img.shields.io/badge/License-MIT-e0b64a.svg)](LICENSE)
-![Node](https://img.shields.io/badge/node-%E2%89%A520-339933?logo=node.js&logoColor=white)
+![Node](https://img.shields.io/badge/node-24%20LTS-339933?logo=node.js&logoColor=white)
+![pnpm](https://img.shields.io/badge/pnpm-11-f69220?logo=pnpm&logoColor=white)
 ![Three.js](https://img.shields.io/badge/three.js-r185-8b5cf6)
 
 <img src="docs/screenshots/the-path.png" alt="The winding cobblestone causeway at night, plates glowing along the path" width="820">
@@ -52,15 +53,18 @@ place you can *walk through*:
 
 ## 🚀 Quick start
 
+Requires Node ≥ 20 — **Node 24 LTS recommended** (`.node-version` is set
+for fnm/asdf/mise). Development uses [pnpm](https://pnpm.io).
+
 ```sh
-npm install
+pnpm install
 
 # hang your own photographs (jpg, png, webp, gif, avif, bmp — scanned recursively)
-npm start -- ~/Pictures/landscapes
+pnpm start -- ~/Pictures/landscapes
 
 # …or conjure 8 procedural sample plates first and use those
-npm run samples
-npm start
+pnpm run samples
+pnpm start
 ```
 
 Then open **http://localhost:4173** and *step onto the path*.
@@ -104,7 +108,7 @@ winding-gallery ~/Pictures/landscapes --port=4173
 ## 🧪 Development
 
 ```sh
-npm test          # node --test: path math, server API, PNG conjurer
+pnpm test          # node --test: path math, server API, PNG conjurer
 ```
 
 Handy query params: `?auto` skips the entrance veil, `?s=120` starts

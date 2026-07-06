@@ -11,7 +11,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write # create the GitHub release
       id-token: write # OIDC token exchange with the npm registry
     steps:
       - uses: actions/checkout@v7
@@ -33,6 +33,11 @@ jobs:
             echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_V}" >&2
             exit 1
           fi
+      # Keep a Changelog is the source of truth for release notes: stable
+      # tags REQUIRE a matching section (this step fails the publish if it
+      # is missing); prereleases publish the Unreleased section.
+      - name: Extract release notes from CHANGELOG.md
+        run: node scripts/changelog-notes.js "${GITHUB_REF_NAME}" > release-notes.md
       - name: Publish (prereleases → the "next" dist-tag)
         run: |
           VERSION=$(node -p "require('./package.json').version")
@@ -43,3 +48,11 @@ jobs:
             echo "Publishing $VERSION as the latest release"
             npm publish --provenance
           fi
+      - name: Create GitHub release with the changelog notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then PRE=--prerelease; else PRE=; fi
+          gh release create "${GITHUB_REF_NAME}" $PRE \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md

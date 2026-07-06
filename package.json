@@ -16,7 +16,8 @@
     "server.js",
     "public/",
     "scripts/make-sample-photos.js",
-    "ASSETS.md"
+    "ASSETS.md",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=22"

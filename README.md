@@ -118,11 +118,19 @@ to the nearest plate, `?tour` starts the Keeper's Tour — pair it with
 `?auto` for a kiosk/TV slideshow. `window.__winding()` reports walker
 state for tooling.
 
-Releases: CI runs the tests on every push; pushing a version tag
-(`git tag v0.2.0 && git push --tags`) publishes to npm via
-[trusted publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC) —
-no tokens, provenance attested. The website deploys to GitHub Pages from
+Releases: CI runs the tests on every push. Tag `vX.Y.Z-rc.N` from a PR
+branch to stage a prerelease on the npm **`next`** dist-tag; tag
+`vX.Y.Z` from `main` to release to `latest` — both via
+[trusted publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC),
+no tokens, provenance attested. Release notes come from
+[CHANGELOG.md](CHANGELOG.md) (Keep a Changelog — a stable tag **fails to
+publish** without its section). The website deploys to GitHub Pages from
 `docs/` on every push to `main`.
+
+More reading: [ARCHITECTURE.md](ARCHITECTURE.md) — the tech stack and how
+the pieces fit · [MILESTONES.md](MILESTONES.md) — the development
+chronicle and its lessons · [CHANGELOG.md](CHANGELOG.md) — what shipped
+when.
 
 ## 📜 License
 

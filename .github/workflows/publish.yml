@@ -33,4 +33,13 @@ jobs:
             echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_V}" >&2
             exit 1
           fi
-      - run: npm publish --provenance
+      - name: Publish (prereleases → the "next" dist-tag)
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [[ "$VERSION" == *-* ]]; then
+            echo "Publishing $VERSION as a prerelease (dist-tag: next)"
+            npm publish --provenance --tag next
+          else
+            echo "Publishing $VERSION as the latest release"
+            npm publish --provenance
+          fi

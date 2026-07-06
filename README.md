@@ -86,6 +86,7 @@ winding-gallery ~/Pictures/landscapes --port=4173
 | **Scroll** | glide along the path — works even without clicking in |
 | **E** or **Click** on a plate | behold it — the view flies up close, with its name and number |
 | **Esc** / **E** / click | return to the path |
+| **T** | the **Keeper's Tour** — a wisp leads a self-playing exhibition, plate to plate; any key hands the path back to you |
 | **H** | toggle the hints |
 
 ## ⚙️ How it works
@@ -113,8 +114,9 @@ pnpm test          # node --test: path math, server API, PNG conjurer
 
 Handy query params: `?auto` skips the entrance veil, `?s=120` starts
 120 m down the path, `?yaw=45` turns the starting view, `?behold` flies
-to the nearest plate. `window.__winding()` reports walker state for
-tooling.
+to the nearest plate, `?tour` starts the Keeper's Tour — pair it with
+`?auto` for a kiosk/TV slideshow. `window.__winding()` reports walker
+state for tooling.
 
 Releases: CI runs the tests on every push; pushing a version tag
 (`git tag v0.2.0 && git push --tags`) publishes to npm via

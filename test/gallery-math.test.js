@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   STEP, curvature, pathHeight, makePathState, extendPath,
-  seededRand, mod, romanize,
+  seededRand, mod, romanize, plateS, nextPlateIndex,
 } from '../public/gallery-math.js';
 
 test('romanize renders wizardly plate numbers', () => {
@@ -58,6 +58,25 @@ test('extendPath integrates a continuous, finite, ever-growing path', () => {
     const horiz = Math.hypot(x1 - x0, z1 - z0);
     assert.ok(Math.abs(horiz - STEP) < 1e-9, `uniform step at ${i}`);
     assert.ok(Math.abs(y1 - y0) < 0.1, `no vertical cliffs at ${i}`);
+  }
+});
+
+test('nextPlateIndex always picks the first plate strictly ahead', () => {
+  const L = 16;
+  assert.equal(plateS(0, L), 8);
+  assert.equal(plateS(3, L), 56);
+  // from the path start, the first plate (segment 0, s=8) is ahead
+  assert.equal(nextPlateIndex(0, L), 0);
+  // standing at a plate, the tour must move on to the next one
+  assert.equal(nextPlateIndex(plateS(0, L), L), 1);
+  assert.equal(nextPlateIndex(plateS(5, L), L), 6);
+  // just short of a plate (within the margin) still counts as "reached"
+  assert.equal(nextPlateIndex(plateS(2, L) - 1, L, 2), 3);
+  // the invariant, swept along the path
+  for (let s = 0; s < 500; s += 0.7) {
+    const k = nextPlateIndex(s, L);
+    assert.ok(plateS(k, L) > s + 2 - 1e-9, `plate ${k} ahead of s=${s}`);
+    assert.ok(k === 0 || plateS(k - 1, L) <= s + 2, `no skipped plate at s=${s}`);
   }
 });
 

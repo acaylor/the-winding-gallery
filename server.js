@@ -7,11 +7,15 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
-const THREE_BUILD = path.join(ROOT, 'node_modules', 'three', 'build');
-const THREE_ADDONS = path.join(ROOT, 'node_modules', 'three', 'examples', 'jsm');
+// Resolve three through Node's module resolution — when this package is
+// installed from npm, three is hoisted to a *sibling* node_modules, not
+// nested inside ours, so a hardcoded ROOT/node_modules path would miss it.
+const THREE_BUILD = path.dirname(createRequire(import.meta.url).resolve('three'));
+const THREE_ADDONS = path.join(THREE_BUILD, '..', 'examples', 'jsm');
 
 export const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.bmp']);
 export const MIME = {

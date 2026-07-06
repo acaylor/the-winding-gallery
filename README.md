@@ -11,6 +11,8 @@ plinth, lit by lanterns and fireflies, with a brass plaque bearing its
 name. The path winds and climbs forever, cycling through your collection
 as you go.
 
+**[✦ Visit the gallery's official site ✦](https://acaylor.github.io/the-winding-gallery/)**
+
 [![CI](https://github.com/acaylor/the-winding-gallery/actions/workflows/ci.yml/badge.svg)](https://github.com/acaylor/the-winding-gallery/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/the-winding-gallery?color=6e9b46&label=npm&logo=npm)](https://www.npmjs.com/package/the-winding-gallery)
 [![License: MIT](https://img.shields.io/badge/License-MIT-e0b64a.svg)](LICENSE)
@@ -111,7 +113,10 @@ to the nearest plate. `window.__winding()` reports walker state for
 tooling.
 
 Releases: CI runs the tests on every push; pushing a version tag
-(`git tag v0.2.0 && git push --tags`) publishes to npm.
+(`git tag v0.2.0 && git push --tags`) publishes to npm via
+[trusted publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC) —
+no tokens, provenance attested. The website deploys to GitHub Pages from
+`docs/` on every push to `main`.
 
 ## 📜 License
 

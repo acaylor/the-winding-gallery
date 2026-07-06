@@ -1,5 +1,8 @@
 name: Publish to npm
 
+# Publishes via npm trusted publishing (OIDC) — no NPM_TOKEN secret needed.
+# One-time setup on npmjs.com → package → Settings → Trusted publisher:
+#   GitHub Actions · owner: acaylor · repo: the-winding-gallery · workflow: publish.yml
 on:
   push:
     tags: ['v*']
@@ -9,14 +12,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # npm provenance
+      id-token: write # OIDC token exchange with the npm registry
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           registry-url: https://registry.npmjs.org
+      # trusted publishing requires npm CLI ≥ 11.5.1
+      - run: npm install -g npm@latest
       - run: npm ci
       - run: npm test
       - name: Check tag matches package.json version
@@ -26,6 +31,4 @@ jobs:
             echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${PKG_V}" >&2
             exit 1
           fi
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm publish --provenance

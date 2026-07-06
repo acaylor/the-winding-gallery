@@ -46,6 +46,17 @@ export function mod(n, m) {
   return ((n % m) + m) % m;
 }
 
+// Each segment hangs one plate at its midpoint.
+export function plateS(segIdx, segLen) {
+  return segIdx * segLen + segLen / 2;
+}
+
+// The segment index of the first plate strictly ahead of the walker
+// (beyond `margin` metres), for the Keeper's Tour to fly to next.
+export function nextPlateIndex(currentS, segLen, margin = 2) {
+  return Math.max(0, Math.floor((currentS + margin - segLen / 2) / segLen) + 1);
+}
+
 // Roman numerals, as is proper for a wizard's collection.
 export function romanize(n) {
   const table = [

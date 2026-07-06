@@ -2,7 +2,10 @@
 // An endless winding sky-path hung with your photographs.
 import * as THREE from 'three';
 import { GLTFLoader } from '/vendor/three-addons/loaders/GLTFLoader.js';
-import { STEP, extendPath as extendPathState, makePathState, seededRand, mod, romanize } from './gallery-math.js';
+import {
+  STEP, extendPath as extendPathState, makePathState,
+  seededRand, mod, romanize, plateS, nextPlateIndex,
+} from './gallery-math.js';
 
 // ───────────────────────────────────────── constants ──
 const SEG_LEN = 16;          // metres of path per generated segment
@@ -812,6 +815,118 @@ function updateFireflies(playerS, t) {
   ffGeo.attributes.position.needsUpdate = true;
 }
 
+// ───────────────────────────────────────── the Keeper's Tour ──
+// Press T and a wisp leads a self-playing exhibition: it drifts to the
+// next plate, the view flies in to behold it a while, then moves on.
+const TOUR_SPEED = 5.5;       // m/s along the path between plates
+const TOUR_DWELL = 6;         // seconds spent beholding each plate
+const tour = { active: false, phase: 'idle', targetIdx: -1, dwell: 0 };
+
+const wisp = new THREE.Group();
+{
+  const core = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.09, 1),
+    new THREE.MeshBasicMaterial({ color: 0xffe9b0 })
+  );
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeGlowTexture('#ffd98a'), color: 0xffc46b, transparent: true,
+    opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  glow.scale.setScalar(1.4);
+  wisp.add(core, glow);
+  wisp.visible = false;
+  scene.add(wisp);
+}
+const wispLight = new THREE.PointLight(0xffd98a, 0, 9, 2);
+wisp.add(wispLight);
+
+function tourStart() {
+  if (photos.length === 0 || tour.active) return;
+  tour.active = true;
+  tour.phase = 'travel';
+  tour.targetIdx = nextPlateIndex(player.s, SEG_LEN);
+  tour.dwell = 0;
+  wisp.visible = true;
+  wispLight.intensity = 4;
+  wisp.position.copy(camera.position);
+  tourBadge.hidden = false;
+  if (mode === 'inspect') returnToPath();
+}
+
+function tourStop() {
+  if (!tour.active) return;
+  tour.active = false;
+  tour.phase = 'idle';
+  wisp.visible = false;
+  wispLight.intensity = 0;
+  tourBadge.hidden = true;
+  if (mode === 'inspect' || mode === 'flying') returnToPath();
+}
+
+function plateMeshForSeg(idx) {
+  const hit = photoMeshes.find((p) => p.segIdx === idx);
+  return hit ? hit.mesh : null;
+}
+
+const _wispTarget = new THREE.Vector3();
+function tourUpdate(dt, t) {
+  if (!tour.active) return;
+  const targetS = plateS(tour.targetIdx, SEG_LEN);
+
+  if (tour.phase === 'travel') {
+    // glide the walker along the path toward the plate
+    const remaining = targetS - player.s;
+    const step = Math.min(Math.abs(remaining), TOUR_SPEED * dt * Math.min(1, 0.25 + Math.abs(remaining) / 8));
+    player.s += Math.sign(remaining) * step;
+    player.lat *= Math.exp(-dt * 2);
+    player.pitch *= Math.exp(-dt * 2);
+    // face along the path
+    pathFrame(player.s + 2, _pos, _tan, _side);
+    const wantYaw = Math.atan2(-_tan.x, -_tan.z);
+    let dy = wantYaw - player.yaw;
+    dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    player.yaw += dy * Math.min(1, dt * 2.5);
+    // the wisp leads, a few paces ahead
+    pathFrame(player.s + 5, _pos, _tan, _side);
+    _wispTarget.set(_pos.x, _pos.y + 2.0 + Math.sin(t * 2.1) * 0.18, _pos.z);
+    wisp.position.lerp(_wispTarget, Math.min(1, dt * 3));
+
+    if (Math.abs(remaining) < 1.2) {
+      const mesh = plateMeshForSeg(tour.targetIdx);
+      if (mesh) {
+        tour.phase = 'behold';
+        beholdPlate(mesh);
+      } else {
+        // plate not built (shouldn't happen) — move on
+        tour.targetIdx += 1;
+      }
+    }
+  } else if (tour.phase === 'behold') {
+    hoverWispByPlate(dt, t);
+    if (mode === 'inspect') { tour.phase = 'dwell'; tour.dwell = 0; }
+  } else if (tour.phase === 'dwell') {
+    hoverWispByPlate(dt, t);
+    tour.dwell += dt;
+    if (tour.dwell >= TOUR_DWELL) {
+      tour.phase = 'depart';
+      returnToPath();
+    }
+  } else if (tour.phase === 'depart') {
+    if (mode === 'walk') {
+      tour.targetIdx = nextPlateIndex(player.s, SEG_LEN);
+      tour.phase = 'travel';
+    }
+  }
+}
+
+function hoverWispByPlate(dt, t) {
+  const mesh = plateMeshForSeg(tour.targetIdx);
+  if (!mesh) return;
+  mesh.getWorldPosition(_wispTarget);
+  _wispTarget.y += mesh.scale.y / 2 + 0.55 + Math.sin(t * 2.4) * 0.12;
+  wisp.position.lerp(_wispTarget, Math.min(1, dt * 3));
+}
+
 // ───────────────────────────────────────── player & controls ──
 const player = { s: 4, lat: 0, yaw: 0, pitch: 0, glide: 0 };
 // face along the path on arrival
@@ -824,6 +939,7 @@ faceAlongPath();
 const keys = new Set();
 let mode = 'walk'; // walk | flying | inspect | returning
 let pendingBehold = false; // debug: ?behold flies to the nearest plate once built
+let pendingTour = false;   // ?tour starts the Keeper's Tour once the world is ready
 let locked = false;
 let hovered = null;
 let bobT = 0;
@@ -837,16 +953,26 @@ const hudCount = document.getElementById('hud-count');
 const crosshair = document.getElementById('crosshair');
 const gazeLabel = document.getElementById('gaze-label');
 const hintPill = document.getElementById('hint-pill');
+const tourBadge = document.getElementById('tour-badge');
 const panel = document.getElementById('plate-panel');
 const plateName = document.getElementById('plate-name');
 const plateNumber = document.getElementById('plate-number');
 const plateMeta = document.getElementById('plate-meta');
 
+const CANCEL_TOUR_KEYS = new Set([
+  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Escape',
+]);
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys.add(e.code);
   if (e.code === 'KeyH') hintPill.classList.toggle('faded');
+  if (e.code === 'KeyT') {
+    tour.active ? tourStop() : tourStart();
+    return;
+  }
+  if (tour.active && CANCEL_TOUR_KEYS.has(e.code)) { tourStop(); return; }
   if (e.code === 'KeyE') {
+    if (tour.active) { tourStop(); return; }
     if (mode === 'walk' && hovered) beholdPlate(hovered);
     else if (mode === 'inspect') returnToPath();
   }
@@ -855,6 +981,7 @@ addEventListener('keydown', (e) => {
 addEventListener('keyup', (e) => keys.delete(e.code));
 
 canvas.addEventListener('click', () => {
+  if (tour.active) { tourStop(); return; }
   if (mode === 'walk' && locked && hovered) beholdPlate(hovered);
   else if (mode === 'walk' && !locked) canvas.requestPointerLock();
   else if (mode === 'inspect') returnToPath();
@@ -868,6 +995,7 @@ addEventListener('mousemove', (e) => {
   player.pitch = THREE.MathUtils.clamp(player.pitch - e.movementY * 0.0023, -1.35, 1.35);
 });
 addEventListener('wheel', (e) => {
+  if (tour.active) tourStop();
   if (mode !== 'walk') return;
   player.glide = THREE.MathUtils.clamp(player.glide + e.deltaY * 0.014, -16, 26);
 }, { passive: true });
@@ -1016,6 +1144,7 @@ async function boot() {
     }
     worldReady = true;
     if (params.has('behold')) pendingBehold = true;
+    if (params.has('tour')) pendingTour = true;
   } catch (err) {
     veilStatus.textContent = 'The path could not be unrolled.';
     veilHint.textContent = String(err);
@@ -1043,6 +1172,7 @@ window.__winding = () => ({
   plates: photoMeshes.length,
   cam: camera.position.toArray().map((v) => +v.toFixed(2)),
   panelHidden: panel.hidden,
+  tour: { active: tour.active, phase: tour.phase, targetIdx: tour.targetIdx },
 });
 
 function animate() {
@@ -1050,6 +1180,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
 
+  tourUpdate(dt, t);
   computeWalkPose(dt);
 
   if (mode === 'walk') {
@@ -1070,6 +1201,10 @@ function animate() {
   }
 
   if (worldReady) updateSegments(player.s);
+  if (pendingTour && photoMeshes.length && hud.hidden === false) {
+    pendingTour = false;
+    tourStart();
+  }
   if (pendingBehold && photoMeshes.length) {
     pendingBehold = false;
     const near = photoMeshes

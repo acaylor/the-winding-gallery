@@ -5,6 +5,7 @@ import { GLTFLoader } from '/vendor/three-addons/loaders/GLTFLoader.js';
 import {
   STEP, extendPath as extendPathState, makePathState,
   seededRand, mod, romanize, plateS, nextPlateIndex,
+  wingOfPlate, waygateWing, segForPlateAhead,
 } from './gallery-math.js';
 
 // ───────────────────────────────────────── constants ──
@@ -235,6 +236,10 @@ const mossMat = new THREE.MeshStandardMaterial({ color: COL.moss, roughness: 1, 
 
 const glowTex = makeGlowTexture('#ffc46b');
 const curbGeo = new THREE.BoxGeometry(0.55, 0.3, 1.15);
+const gatePillarGeo = new THREE.BoxGeometry(0.9, 3.6, 0.9);
+const gateCapGeo = new THREE.BoxGeometry(1.2, 0.28, 1.2);
+const gateLintelGeo = new THREE.BoxGeometry(PATH_W + 2.2, 0.75, 1.0);
+const gateNameGeo = new THREE.PlaneGeometry(4.8, 0.9);
 const plinthGeo = new THREE.CylinderGeometry(0.5, 0.72, 1.15, 6);
 const capGeo = new THREE.CylinderGeometry(0.62, 0.5, 0.18, 6);
 const postGeo = new THREE.CylinderGeometry(0.07, 0.1, 2.7, 6);
@@ -315,8 +320,13 @@ function loadLantern() {
 }
 
 // ───────────────────────────────────────── photo textures ──
-let photos = [];               // [{name, src}]
+let photos = [];               // [{name, src, wing}]
+let wings = [];                // [{name, start, count}] — contiguous subfolder wings
 let worldReady = false;        // don't build segments until the plate list arrives
+
+function wingDisplay(name) {
+  return name ? name.replace(/[-_]+/g, ' ') : 'the entrance hall';
+}
 const texCache = new Map();    // src -> { promise, tex, refs }
 let loadQueue = [];
 let loadsActive = 0;
@@ -607,13 +617,61 @@ function buildSegment(idx) {
     group.add(lantern);
   }
 
-  // — a stone arch over the path, every sixth segment —
-  if (idx % 6 === 3) {
+  // — a waygate where a wing begins; a plain stone arch elsewhere —
+  const gateWing = waygateWing(idx, photos.length, wings);
+  if (gateWing) {
+    const s = s0 + 1.4;
+    pathFrame(s, _pos, _tan, _side);
+    // right-handed basis (side × up = -tan): setFromRotationMatrix expects a
+    // pure rotation — a left-handed basis mirrors the geometry and the name
+    // plates end up backface-culled
+    const basis = _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone().multiplyScalar(-1));
+    const R = PATH_W / 2 + 0.7;
+    for (const ss of [-1, 1]) {
+      const pillar = new THREE.Mesh(gatePillarGeo, stoneMat);
+      pillar.position.set(_pos.x + _side.x * R * ss, _pos.y + 1.8, _pos.z + _side.z * R * ss);
+      pillar.quaternion.setFromRotationMatrix(basis);
+      const cap = new THREE.Mesh(gateCapGeo, stoneDarkMat);
+      cap.position.copy(pillar.position);
+      cap.position.y = _pos.y + 3.74;
+      cap.quaternion.copy(pillar.quaternion);
+      const flame = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: glowTex, color: COL.flame, transparent: true, opacity: 0.7,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      }));
+      flame.scale.setScalar(1.7);
+      flame.position.copy(cap.position);
+      flame.position.y += 0.45;
+      group.add(pillar, cap, flame);
+      seg.disposables.push(flame.material);
+      seg.bobbers.push({ obj: flame, base: flame.position.y, amp: 0, flick: flame.material, phase: rand() * 9 });
+    }
+    const lintel = new THREE.Mesh(gateLintelGeo, stoneMat);
+    lintel.position.set(_pos.x, _pos.y + 4.0, _pos.z);
+    lintel.quaternion.setFromRotationMatrix(basis);
+    group.add(lintel);
+    // the wing's name, carved on both faces
+    // the wing's name, carved on both faces: the basis plane (+Z → -tan)
+    // greets the approaching walker; the far face gets the half-turn
+    for (const face of [-1, 1]) {
+      const plate = new THREE.Mesh(gateNameGeo, gateNameMat(gateWing.name));
+      plate.position.set(
+        _pos.x + _tan.x * 0.52 * face,
+        _pos.y + 4.0,
+        _pos.z + _tan.z * 0.52 * face
+      );
+      plate.quaternion.setFromRotationMatrix(basis);
+      if (face > 0) plate.rotateY(Math.PI);
+      group.add(plate);
+    }
+  } else if (idx % 6 === 3) {
     const s = s0 + SEG_LEN * 0.5;
     pathFrame(s, _pos, _tan, _side);
     const R = PATH_W / 2 + 1.3;
     const arch = new THREE.Mesh(new THREE.TorusGeometry(R, 0.34, 6, 22, Math.PI), stoneMat);
-    _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone());
+    // right-handed basis (side × up = -tan) — see the waygate note above;
+    // the torus is symmetric, so the old mirrored basis merely got lucky
+    _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone().multiplyScalar(-1));
     arch.quaternion.setFromRotationMatrix(_m);
     arch.position.set(_pos.x, _pos.y + 1.2, _pos.z);
     group.add(arch);
@@ -704,6 +762,33 @@ function mergeGeometries(geos) {
   out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   out.setIndex(index);
   return out;
+}
+
+// carved wing names for the waygates — one material per wing, kept for
+// the session (wing count is bounded by the folder structure)
+const gateNameMats = new Map();
+function gateNameMat(wingName) {
+  let mat = gateNameMats.get(wingName);
+  if (mat) return mat;
+  const c = document.createElement('canvas');
+  c.width = 1024; c.height = 192;
+  const g = c.getContext('2d');
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const label = `✦  ${wingDisplay(wingName)}  ✦`;
+  let px = 84;
+  do { g.font = `600 ${px}px "Iowan Old Style", Palatino, Georgia, serif`; px -= 4; }
+  while (px > 30 && g.measureText(label.toUpperCase()).width > 950);
+  g.strokeStyle = 'rgba(0,0,0,0.85)';
+  g.lineWidth = 7;
+  g.strokeText(label.toUpperCase(), 512, 100);
+  g.fillStyle = '#e9c96a';
+  g.fillText(label.toUpperCase(), 512, 100);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  mat = new THREE.MeshBasicMaterial({ map: t, transparent: true });
+  gateNameMats.set(wingName, mat);
+  return mat;
 }
 
 function makePlaque(name) {
@@ -954,6 +1039,11 @@ const crosshair = document.getElementById('crosshair');
 const gazeLabel = document.getElementById('gaze-label');
 const hintPill = document.getElementById('hint-pill');
 const tourBadge = document.getElementById('tour-badge');
+const hudWing = document.getElementById('hud-wing');
+const wayMap = document.getElementById('way-map');
+const wayList = document.getElementById('way-list');
+const plateKicker = document.getElementById('plate-kicker');
+const fadeEl = document.getElementById('fade');
 const panel = document.getElementById('plate-panel');
 const plateName = document.getElementById('plate-name');
 const plateNumber = document.getElementById('plate-number');
@@ -966,6 +1056,14 @@ addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys.add(e.code);
   if (e.code === 'KeyH') hintPill.classList.toggle('faded');
+  if (e.code === 'KeyM') {
+    mapOpen ? closeMap() : openMap();
+    return;
+  }
+  if (mapOpen) {
+    if (e.code === 'Escape') closeMap();
+    return;
+  }
   if (e.code === 'KeyT') {
     tour.active ? tourStop() : tourStart();
     return;
@@ -1007,6 +1105,85 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
+// ───────────────────────────────────────── the Wayfarer's Map ──
+// Press M: every wing of the gallery, one step away. Choosing a wing
+// fades the night and sets the walker down just before its waygate.
+let mapOpen = false;
+let currentWingName = null;
+
+function buildMapRows() {
+  wayList.innerHTML = '';
+  const rows = [
+    { label: 'the gatehouse', note: 'where the path begins', s: 2 },
+    ...wings.map((w) => ({
+      label: wingDisplay(w.name),
+      note: `${romanize(w.count)} plate${w.count === 1 ? '' : 's'}`,
+      wing: w,
+    })),
+  ];
+  for (const row of rows) {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.innerHTML =
+      `<span class="way-glyph">✦</span><span class="way-name"></span><span class="way-note"></span>`;
+    btn.querySelector('.way-name').textContent = row.label;
+    btn.querySelector('.way-note').textContent = row.note;
+    if (row.wing) btn.dataset.wing = row.wing.name;
+    btn.addEventListener('click', () => {
+      if (row.wing) teleportToWing(row.wing);
+      else teleportTo(row.s);
+    });
+    li.appendChild(btn);
+    wayList.appendChild(li);
+  }
+}
+
+function openMap() {
+  tourStop();
+  mapOpen = true;
+  wayMap.hidden = false;
+  document.exitPointerLock?.();
+  // mark where the walker stands
+  for (const btn of wayList.querySelectorAll('button')) {
+    btn.classList.toggle('here', currentWingName !== null && btn.dataset.wing === currentWingName);
+  }
+}
+function closeMap() {
+  mapOpen = false;
+  wayMap.hidden = true;
+}
+
+function teleportToWing(wing) {
+  const idx = segForPlateAhead(player.s, wing.start, photos.length, SEG_LEN, 6);
+  teleportTo(Math.max(2, idx * SEG_LEN - 4));
+}
+async function teleportTo(s) {
+  closeMap();
+  fadeEl.classList.add('dark');
+  await new Promise((r) => setTimeout(r, 380));
+  if (mode === 'inspect' || mode === 'flying') { mode = 'walk'; panel.hidden = true; }
+  player.s = Math.max(2, s);
+  player.lat = 0;
+  player.glide = 0;
+  player.pitch = 0;
+  faceAlongPath();
+  updateSegments(player.s);
+  fadeEl.classList.remove('dark');
+}
+
+// keep the HUD's "wing of…" line current (cheap; runs on the hover tick)
+function updateWing() {
+  if (wings.length === 0) return;
+  const plate = mod(Math.floor(player.s / SEG_LEN), photos.length);
+  const wing = wingOfPlate(wings, plate);
+  const name = wing ? wing.name : null;
+  if (name !== currentWingName) {
+    currentWingName = name;
+    hudWing.textContent = wings.length > 1 ? `· ${wingDisplay(name)}` : '';
+  }
+}
+
 // ───────────────────────────────────────── beholding a plate ──
 const flyFrom = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
 const flyTo = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
@@ -1034,6 +1211,12 @@ function beholdPlate(mesh) {
 
   const photo = mesh.userData.photo;
   plateName.textContent = photo.name.replace(/[-_]+/g, ' ');
+  if (wings.length > 1) {
+    const wing = wingOfPlate(wings, mesh.userData.plate);
+    plateKicker.textContent = `From the wing of ${wingDisplay(wing.name)}`;
+  } else {
+    plateKicker.textContent = 'From the collection';
+  }
   plateNumber.textContent = `Plate ${romanize(mesh.userData.plate + 1)} · of ${romanize(photos.length)}`;
   plateMeta.textContent = mesh.userData.dims ? `${mesh.userData.dims} px` : '';
 }
@@ -1117,6 +1300,8 @@ async function boot() {
     const [res] = await Promise.all([fetch('/api/photos'), loadLantern()]);
     const data = await res.json();
     photos = data.photos;
+    wings = data.wings || [];
+    buildMapRows();
     if (photos.length === 0) {
       veilStatus.textContent = 'The gallery walls are bare.';
       veilHint.innerHTML =
@@ -1167,12 +1352,16 @@ const clock = new THREE.Clock();
 let hoverTick = 0;
 
 // dev hook: lets tooling read the walker's state
+window.__scene = scene;
 window.__winding = () => ({
   mode, s: player.s, flyT,
   plates: photoMeshes.length,
   cam: camera.position.toArray().map((v) => +v.toFixed(2)),
   panelHidden: panel.hidden,
   tour: { active: tour.active, phase: tour.phase, targetIdx: tour.targetIdx },
+  wing: currentWingName,
+  wings: wings.length,
+  mapOpen,
 });
 
 function animate() {
@@ -1234,7 +1423,7 @@ function animate() {
   ffMat.uniforms.uTime.value = t;
 
   hoverTick += dt;
-  if (hoverTick > 0.08) { hoverTick = 0; updateHover(); }
+  if (hoverTick > 0.08) { hoverTick = 0; updateHover(); updateWing(); }
 
   renderer.render(scene, camera);
 }

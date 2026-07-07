@@ -14,6 +14,10 @@
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
+/* The hidden attribute must always win — author display rules (e.g. a
+   grid overlay) otherwise override the UA's [hidden] { display: none }. */
+[hidden] { display: none !important; }
+
 html, body {
   height: 100%;
   overflow: hidden;
@@ -176,6 +180,89 @@ html, body {
   animation: pulse 2.2s ease-in-out infinite;
 }
 @keyframes badge-in { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* ── The Wayfarer's Map ── */
+#hud-wing {
+  color: var(--gold-2); margin-left: 0.6rem;
+  font-size: 0.85em; font-style: italic; font-variant: normal;
+  letter-spacing: 0.04em;
+}
+
+#way-map {
+  position: fixed; inset: 0; z-index: 34;
+  display: grid; place-items: center;
+  background: rgba(7, 9, 18, 0.78);
+  backdrop-filter: blur(8px);
+  animation: map-in .35s ease both;
+}
+@keyframes map-in { from { opacity: 0; } }
+
+.way-inner {
+  width: min(560px, 92vw);
+  max-height: 82vh;
+  display: flex; flex-direction: column;
+  background: linear-gradient(165deg, rgba(19, 23, 49, .92), rgba(11, 14, 28, .96));
+  border: 1px solid rgba(224, 182, 74, 0.4);
+  border-radius: 4px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .6), inset 0 0 60px rgba(224, 182, 74, .04);
+  padding: 2rem 2rem 1.4rem;
+}
+.way-kicker {
+  font-size: 0.72rem; letter-spacing: 0.3em; text-transform: uppercase;
+  color: var(--moss); text-align: center;
+}
+.way-title {
+  margin: 0.4rem 0 1.2rem;
+  font-size: 1.6rem; font-weight: 500; text-align: center;
+  font-variant: small-caps; letter-spacing: 0.1em;
+  color: var(--ink);
+}
+#way-list {
+  list-style: none;
+  overflow-y: auto;
+  border-top: 1px solid rgba(224, 182, 74, 0.18);
+}
+#way-list button {
+  display: grid;
+  grid-template-columns: 1.6rem 1fr auto;
+  align-items: baseline;
+  width: 100%;
+  font: 1.05rem var(--serif);
+  text-align: left;
+  color: var(--ink);
+  background: none; border: none;
+  border-bottom: 1px solid rgba(224, 182, 74, 0.18);
+  padding: 0.8rem 0.6rem;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+#way-list button:hover { background: rgba(224, 182, 74, 0.1); }
+#way-list .way-glyph { color: var(--gold); font-size: 0.8em; }
+#way-list .way-name { font-style: italic; letter-spacing: 0.03em; overflow-wrap: anywhere; }
+#way-list .way-note {
+  color: var(--ink-dim); font-size: 0.82em;
+  font-variant: small-caps; letter-spacing: 0.1em;
+  white-space: nowrap; padding-left: 1rem;
+}
+#way-list button.here .way-name { color: var(--gold-2); }
+#way-list button.here .way-note::after { content: " · you are here"; color: var(--gold-2); }
+.way-hint {
+  margin-top: 1rem; text-align: center;
+  color: var(--ink-dim); font-size: 0.85rem;
+}
+.way-hint kbd {
+  font: 0.8em ui-monospace, Menlo, monospace;
+  border: 1px solid rgba(157, 148, 168, .4); border-radius: 3px;
+  padding: 1px 5px;
+}
+
+#fade {
+  position: fixed; inset: 0; z-index: 50;
+  background: #05060d;
+  opacity: 0; pointer-events: none;
+  transition: opacity .35s ease;
+}
+#fade.dark { opacity: 1; pointer-events: auto; }
 
 /* ── Plate inspection panel ── */
 #plate-panel {

@@ -57,6 +57,61 @@ export function nextPlateIndex(currentS, segLen, margin = 2) {
   return Math.max(0, Math.floor((currentS + margin - segLen / 2) / segLen) + 1);
 }
 
+// ── wings ───────────────────────────────────────────────────────────
+// Subdirectories become "wings" of the gallery: contiguous stretches of
+// the one endless path, each announced by a carved waygate.
+
+// Group a wing-annotated photo list into contiguous wings, preserving
+// first-appearance wing order. Returns { photos, wings } where photos is
+// the reordered flat list and wings is [{ name, start, count }] with
+// `start` the plate index of the wing's first photo.
+export function groupWings(list) {
+  const order = [];
+  const byWing = new Map();
+  for (const photo of list) {
+    const wing = photo.wing ?? '';
+    if (!byWing.has(wing)) {
+      byWing.set(wing, []);
+      order.push(wing);
+    }
+    byWing.get(wing).push(photo);
+  }
+  const photos = [];
+  const wings = [];
+  for (const name of order) {
+    const group = byWing.get(name);
+    wings.push({ name, start: photos.length, count: group.length });
+    photos.push(...group);
+  }
+  return { photos, wings };
+}
+
+// The wing a plate belongs to.
+export function wingOfPlate(wings, plateIdx) {
+  let found = null;
+  for (const w of wings) {
+    if (plateIdx >= w.start) found = w;
+    else break;
+  }
+  return found;
+}
+
+// If this path segment hangs the first plate of a wing, return that wing
+// (a waygate is built there) — including the wrap where the cycle begins
+// again. Null when the segment is mid-wing or there is only one wing.
+export function waygateWing(segIdx, photoCount, wings) {
+  if (wings.length < 2 || photoCount === 0) return null;
+  const plateIdx = mod(segIdx, photoCount);
+  return wings.find((w) => w.start === plateIdx) ?? null;
+}
+
+// The first segment index at (or beyond) `margin` metres ahead of the
+// walker whose plate is `plateIdx` — where the Wayfarer's Map teleports.
+export function segForPlateAhead(currentS, plateIdx, photoCount, segLen, margin = 2) {
+  const base = nextPlateIndex(currentS, segLen, margin);
+  return base + mod(plateIdx - base, photoCount);
+}
+
 // Roman numerals, as is proper for a wizard's collection.
 export function romanize(n) {
   const table = [

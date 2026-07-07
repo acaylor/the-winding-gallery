@@ -170,6 +170,15 @@ the escape hatch.
   things that should glow.
 - Long dark gradients band on 8-bit displays; a hash dither in the sky
   shader is invisible and free.
+- **A silent fallback can hide a loader failure completely.** The
+  photoscanned rocks are meshopt-compressed, and `GLTFLoader` without
+  `setMeshoptDecoder()` fails — into an error callback that quietly fell
+  back to the old procedural shards. Two rounds of "the new rocks look
+  identical" were spent reviewing the fallback. When a fallback exists,
+  first prove which path rendered.
+- Aggressive mesh simplification (`--error 0.02`) tears photoscans into
+  shreds; ratio-led simplification with a tight error bound
+  (`--ratio 0.5 --error 0.001`) keeps them whole.
 
 ## The Ledger of Lessons
 

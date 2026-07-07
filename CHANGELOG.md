@@ -29,9 +29,17 @@ whatever stands in **Unreleased**.
     their shape.
   - `?quality=low` keeps the previous lightweight pipeline (no bloom,
     shadows or mist) for modest machines.
+- **Real floating islands** — the drifting rocks are now photoscanned
+  boulders (Poly Haven, CC0; simplified and meshopt-compressed to
+  60–112 KB each) instead of procedurally jittered shards. The far
+  horizon silhouettes share their outlines.
 
 ### Fixed
 
+- Decorative arches stood at each segment's midpoint — exactly where
+  every photo plate stands — so plates overlapped the arch each time
+  one appeared. Arches now stand at the segment's start, clear of the
+  plates.
 - Sky-gradient banding, dithered away in the sky shader.
 
 ## [0.3.0] - 2026-07-06

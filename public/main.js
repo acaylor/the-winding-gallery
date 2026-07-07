@@ -2,6 +2,7 @@
 // An endless winding sky-path hung with your photographs.
 import * as THREE from 'three';
 import { GLTFLoader } from '/vendor/three-addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from '/vendor/three-addons/libs/meshopt_decoder.module.js';
 import { EffectComposer } from '/vendor/three-addons/postprocessing/EffectComposer.js';
 import { RenderPass } from '/vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from '/vendor/three-addons/postprocessing/UnrealBloomPass.js';
@@ -82,7 +83,7 @@ renderer.toneMappingExposure = 1.08;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 if (!LOW_FX) {
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
 }
 
 const scene = new THREE.Scene();
@@ -262,7 +263,7 @@ skyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1600, 32, 20), skyMat));
     envScene.add(glint);
   }
   const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(envScene, 0.09).texture;
+  scene.environment = pmrem.fromScene(envScene, 0.04).texture;
   scene.environmentIntensity = 0.38;
   pmrem.dispose();
 }
@@ -364,16 +365,26 @@ const trunkGeo = new THREE.CylinderGeometry(0.09, 0.12, 0.5, 5);
 
 // ───────────────────────────────────────── the deep distance ──
 // Far islands adrift on the horizon — some carrying a lantern-town
-// spark — so the vista has landmarks instead of empty fog.
-{
+// spark — so the vista has landmarks instead of empty fog. Built once
+// the rock model has loaded (boot), so they share its silhouette.
+function buildHorizonIsles() {
   const isleMat = new THREE.MeshBasicMaterial({ color: 0x10122a, fog: false });
   const isleRand = seededRand(4099);
   for (let i = 0; i < 10; i++) {
     const a = isleRand() * Math.PI * 2;
     const d = 1050 + isleRand() * 320;
-    const isle = new THREE.Mesh(rockGeos[i % rockGeos.length], isleMat);
+    const proto = rockProtos.length ? rockProtos[i % rockProtos.length] : null;
+    const isle = proto
+      ? new THREE.Mesh(proto.geometry, isleMat)
+      : new THREE.Mesh(rockGeos[i % rockGeos.length], isleMat);
+    const w = 36 + isleRand() * 60, h = 20 + isleRand() * 26;
     isle.position.set(Math.cos(a) * d, (-0.015 + isleRand() * 0.05) * d, Math.sin(a) * d);
-    isle.scale.set(36 + isleRand() * 60, 20 + isleRand() * 26, 36 + isleRand() * 60);
+    if (proto) {
+      isle.scale.set(w / proto.half, h / proto.height, w / proto.half);
+      isle.position.y -= h * 0.4; // origin at the rock's base, not its middle
+    } else {
+      isle.scale.set(w, h, w);
+    }
     isle.rotation.y = isleRand() * Math.PI * 2;
     skyGroup.add(isle);
     if (isleRand() < 0.6) {
@@ -384,7 +395,7 @@ const trunkGeo = new THREE.CylinderGeometry(0.09, 0.12, 0.5, 5);
       }));
       spark.scale.setScalar(30);
       spark.position.copy(isle.position);
-      spark.position.y += isle.scale.y * 0.7;
+      spark.position.y += h * 0.9;
       skyGroup.add(spark);
     }
   }
@@ -471,6 +482,33 @@ const placeholderTex = (() => {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 })();
+
+// ──────────────────────────────── the drifting rocks (Poly Haven CC0) ──
+// Photoscanned boulders; every island adrift around the path is an
+// instance of one. Falls back to the old jittered shards if none load.
+const rockProtos = [];       // { geometry, material, half, height } — origin on the footprint
+function loadIsleRocks() {
+  const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder); // the rocks are meshopt-compressed
+  return Promise.all(['/assets/isle-rock-1.glb', '/assets/isle-rock-2.glb', '/assets/isle-rock-3.glb']
+    .map((url) => new Promise((resolve) => {
+      loader.load(url, (gltf) => {
+        gltf.scene.traverse((o) => {
+          if (o.isMesh) {
+            const g = o.geometry;
+            g.computeBoundingBox();
+            const bb = g.boundingBox;
+            // center each rock on its own footprint, sitting on y=0
+            g.translate(
+              -(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
+            const half = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2;
+            rockProtos.push({ geometry: g, material: o.material, half, height: bb.max.y - bb.min.y });
+          }
+        });
+        resolve();
+      }, undefined, () => resolve());
+    })));
+}
 
 // ───────────────────────────────────────── the lantern (Khronos CC0 model) ──
 let lanternProto = null;                                // Group, ground at y=0, arm along +X
@@ -865,7 +903,9 @@ function buildSegment(idx) {
       group.add(plate);
     }
   } else if (idx % 6 === 3) {
-    const s = s0 + SEG_LEN * 0.5;
+    // stand the arch at the segment's start, well clear of the photo
+    // plate that always occupies the midpoint
+    const s = s0 + 1.6;
     pathFrame(s, _pos, _tan, _side);
     const R = PATH_W / 2 + 1.3;
     const arch = new THREE.Mesh(new THREE.TorusGeometry(R, 0.34, 6, 22, Math.PI), stoneMat);
@@ -886,7 +926,9 @@ function buildSegment(idx) {
     }
   }
 
-  // — floating rocks adrift around the path —
+  // — floating islands adrift around the path —
+  // photoscanned mossy rock (Poly Haven), yawed and stretched per island;
+  // the jittered shards remain only as a fallback if the model failed
   {
     const n = 2 + Math.floor(rand() * 3);
     for (let j = 0; j < n; j++) {
@@ -894,36 +936,42 @@ function buildSegment(idx) {
       pathFrame(s, _pos, _tan, _side);
       const lat = (rand() < 0.5 ? -1 : 1) * (9 + rand() * 26);
       const y = _pos.y + (rand() - 0.35) * 16 - 4;
-      const rock = new THREE.Mesh(rockGeos[Math.floor(rand() * rockGeos.length)], stoneDarkMat);
+      const phase = rand() * 9;
+      let rock, topY;
+      if (rockProtos.length) {
+        const proto = rockProtos[Math.floor(rand() * rockProtos.length)];
+        rock = new THREE.Mesh(proto.geometry, proto.material);
+        const k = (1.6 + rand() * 3.2) / proto.half;
+        rock.scale.set(
+          k * (0.8 + rand() * 0.5),
+          k * (0.7 + rand() * 0.55),
+          k * (0.8 + rand() * 0.5));
+        rock.rotation.y = rand() * Math.PI * 2; // yaw only — the weathered top stays up
+        topY = proto.height * rock.scale.y;
+      } else {
+        rock = new THREE.Mesh(rockGeos[Math.floor(rand() * rockGeos.length)], stoneDarkMat);
+        rock.scale.setScalar(1 + rand() * 3.2);
+        rock.rotation.set(rand() * 0.6, rand() * Math.PI * 2, rand() * 0.6);
+        topY = rock.scale.y * 0.55;
+      }
       rock.receiveShadow = true;
       rock.position.set(_pos.x + _side.x * lat, y, _pos.z + _side.z * lat);
-      rock.scale.setScalar(1 + rand() * 3.2);
-      rock.rotation.set(rand() * 0.6, rand() * Math.PI * 2, rand() * 0.6);
       group.add(rock);
-      seg.bobbers.push({ obj: rock, base: y, amp: 0.35 + rand() * 0.5, phase: rand() * 9 });
+      seg.bobbers.push({ obj: rock, base: y, amp: 0.35 + rand() * 0.5, phase });
 
-      if (rand() < 0.4) {
-        const moss = new THREE.Mesh(capGeo, mossMat);
-        moss.receiveShadow = true;
-        moss.scale.set(rock.scale.x * 1.5, 0.5, rock.scale.z * 1.5);
-        moss.position.copy(rock.position);
-        moss.position.y += rock.scale.y * 0.55;
-        group.add(moss);
-        seg.bobbers.push({ obj: moss, base: moss.position.y, amp: 0.35, phase: seg.bobbers.at(-1).phase });
-        if (rand() < 0.6) {
-          const tree = new THREE.Group();
-          const trunk = new THREE.Mesh(trunkGeo, barkMat);
-          const cone = new THREE.Mesh(pineGeo, mossMat);
-          trunk.castShadow = cone.castShadow = true;
-          cone.position.y = 1.2;
-          trunk.position.y = 0.2;
-          tree.add(trunk, cone);
-          tree.scale.setScalar(0.8 + rand() * 1.4);
-          tree.position.copy(moss.position);
-          tree.position.y += 0.2;
-          group.add(tree);
-          seg.bobbers.push({ obj: tree, base: tree.position.y, amp: 0.35, phase: seg.bobbers.at(-1).phase });
-        }
+      if (rand() < 0.5) {
+        const tree = new THREE.Group();
+        const trunk = new THREE.Mesh(trunkGeo, barkMat);
+        const cone = new THREE.Mesh(pineGeo, mossMat);
+        trunk.castShadow = cone.castShadow = true;
+        cone.position.y = 1.2;
+        trunk.position.y = 0.2;
+        tree.add(trunk, cone);
+        tree.scale.setScalar(0.8 + rand() * 1.4);
+        tree.position.copy(rock.position);
+        tree.position.y += topY * 0.82;
+        group.add(tree);
+        seg.bobbers.push({ obj: tree, base: tree.position.y, amp: 0.35, phase });
       }
     }
   }
@@ -1585,7 +1633,8 @@ function computeWalkPose(dt) {
 // ───────────────────────────────────────── boot ──
 async function boot() {
   try {
-    const [res] = await Promise.all([fetch('/api/photos'), loadLantern()]);
+    const [res] = await Promise.all([fetch('/api/photos'), loadLantern(), loadIsleRocks()]);
+    buildHorizonIsles();
     const data = await res.json();
     photos = data.photos;
     wings = data.wings || [];

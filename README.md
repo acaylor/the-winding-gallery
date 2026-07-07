@@ -40,6 +40,9 @@ place you can *walk through*:
 - **A place, not a page.** Real CC0 surfaces (mossy cobblestones, rock,
   bark from [ambientCG](https://ambientcg.com)) and the Khronos CC0
   lantern model, under moonlight, starlight and fireflies.
+- **Wings & waygates.** Subfolders become *wings* of the gallery: each
+  hangs together on the path, announced by a stone waygate carved with
+  its name. Press **M** for the Wayfarer's Map and step to any wing.
 
 ## 🖼️ Gallery
 
@@ -87,6 +90,7 @@ winding-gallery ~/Pictures/landscapes --port=4173
 | **E** or **Click** on a plate | behold it — the view flies up close, with its name and number |
 | **Esc** / **E** / click | return to the path |
 | **T** | the **Keeper's Tour** — a wisp leads a self-playing exhibition, plate to plate; any key hands the path back to you |
+| **M** | the **Wayfarer's Map** — every wing of the gallery, one step away |
 | **H** | toggle the hints |
 
 ## ⚙️ How it works

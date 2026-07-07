@@ -34,6 +34,8 @@ test('scanPhotos finds images recursively, sorted, skipping noise', async () => 
   assert.deepEqual(photos.map((p) => p.name), ['a-dawn', 'b-dusk', 'firth & fell']);
   const sub = photos.find((p) => p.name === 'firth & fell');
   assert.equal(sub.src, '/photos/trip%20one/firth%20%26%20fell.webp', 'src is URL-encoded');
+  assert.equal(sub.wing, 'trip one', 'subdirectory photos carry their wing');
+  assert.equal(photos[0].wing, '', 'root photos belong to the root wing');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -71,12 +73,41 @@ test('GET / serves the gallery page', async () => {
   assert.match(await res.text(), /The Winding Gallery/);
 });
 
-test('GET /api/photos lists the collection', async () => {
+test('GET /api/photos lists the collection with its wings', async () => {
   const res = await fetch(`${base}/api/photos`);
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.equal(data.dir, photoDir);
-  assert.deepEqual(data.photos, [{ name: 'plate', src: '/photos/plate.png' }]);
+  assert.deepEqual(data.photos, [{ name: 'plate', src: '/photos/plate.png', wing: '' }]);
+  assert.deepEqual(data.wings, [{ name: '', start: 0, count: 1 }]);
+});
+
+test('GET /api/photos groups subdirectories into contiguous wings', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'winding-wings-'));
+  fs.writeFileSync(path.join(dir, 'aa-root.png'), 'x');
+  fs.writeFileSync(path.join(dir, 'zz-root.png'), 'x');
+  fs.mkdirSync(path.join(dir, 'coast'));
+  fs.writeFileSync(path.join(dir, 'coast', 'dunes.png'), 'x');
+  fs.mkdirSync(path.join(dir, 'alps'));
+  fs.writeFileSync(path.join(dir, 'alps', 'ridge.png'), 'x');
+  fs.writeFileSync(path.join(dir, 'alps', 'valley.png'), 'x');
+
+  const srv = createGalleryServer(dir);
+  await new Promise((r) => srv.listen(0, r));
+  try {
+    const data = await (await fetch(`http://127.0.0.1:${srv.address().port}/api/photos`)).json();
+    // wings are contiguous even though root files sort around the dirs
+    assert.deepEqual(data.photos.map((p) => p.wing),
+      ['', '', 'alps', 'alps', 'coast']);
+    assert.deepEqual(data.wings, [
+      { name: '', start: 0, count: 2 },
+      { name: 'alps', start: 2, count: 2 },
+      { name: 'coast', start: 4, count: 1 },
+    ]);
+  } finally {
+    srv.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('GET /photos/<file> streams the image with its mime type', async () => {

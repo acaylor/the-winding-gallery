@@ -12,6 +12,18 @@ whatever stands in **Unreleased**.
 
 ### Added
 
+- **Wings & Waygates** — subfolders become *wings* of the gallery. Each
+  wing's photographs hang together on the path, and a stone waygate
+  carved with the wing's name (gold on both faces, flame-lit pillars)
+  marks where it begins. The HUD shows the wing you are walking; the
+  plate panel names the wing a photograph belongs to.
+- **The Wayfarer's Map** — press `M`: every wing listed with its plate
+  count and a *you are here* mark. Choosing one fades the night and sets
+  you down just before that wing's waygate, facing down the path.
+- `/api/photos` now returns `wing` per photo and a `wings` summary;
+  photos are grouped so each subfolder is contiguous on the path.
+- Wing helpers (`groupWings`, `wingOfPlate`, `waygateWing`,
+  `segForPlateAhead`) in `gallery-math.js`, unit-tested.
 - `MILESTONES.md` — a chronicle of the project's development and the
   lessons each stage taught.
 - `ARCHITECTURE.md` — the tech stack and how the pieces fit together.

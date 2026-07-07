@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   STEP, curvature, pathHeight, makePathState, extendPath,
   seededRand, mod, romanize, plateS, nextPlateIndex,
+  groupWings, wingOfPlate, waygateWing, segForPlateAhead,
 } from '../public/gallery-math.js';
 
 test('romanize renders wizardly plate numbers', () => {
@@ -77,6 +78,65 @@ test('nextPlateIndex always picks the first plate strictly ahead', () => {
     const k = nextPlateIndex(s, L);
     assert.ok(plateS(k, L) > s + 2 - 1e-9, `plate ${k} ahead of s=${s}`);
     assert.ok(k === 0 || plateS(k - 1, L) <= s + 2, `no skipped plate at s=${s}`);
+  }
+});
+
+test('groupWings makes contiguous wings in first-appearance order', () => {
+  const scattered = [
+    { name: 'a', wing: '' },
+    { name: 'b', wing: 'alps' },
+    { name: 'c', wing: '' },      // root photo scattered after a dir
+    { name: 'd', wing: 'coast' },
+    { name: 'e', wing: 'alps' },
+  ];
+  const { photos, wings } = groupWings(scattered);
+  assert.deepEqual(photos.map((p) => p.name), ['a', 'c', 'b', 'e', 'd']);
+  assert.deepEqual(wings, [
+    { name: '', start: 0, count: 2 },
+    { name: 'alps', start: 2, count: 2 },
+    { name: 'coast', start: 4, count: 1 },
+  ]);
+});
+
+test('wingOfPlate finds the wing that owns a plate', () => {
+  const wings = [
+    { name: '', start: 0, count: 2 },
+    { name: 'alps', start: 2, count: 3 },
+    { name: 'coast', start: 5, count: 1 },
+  ];
+  assert.equal(wingOfPlate(wings, 0).name, '');
+  assert.equal(wingOfPlate(wings, 1).name, '');
+  assert.equal(wingOfPlate(wings, 2).name, 'alps');
+  assert.equal(wingOfPlate(wings, 4).name, 'alps');
+  assert.equal(wingOfPlate(wings, 5).name, 'coast');
+});
+
+test('waygateWing marks wing starts, including the cycle wrap', () => {
+  const wings = [
+    { name: '', start: 0, count: 2 },
+    { name: 'alps', start: 2, count: 3 },
+  ];
+  const N = 5;
+  assert.equal(waygateWing(0, N, wings).name, '', 'gate where the gallery begins');
+  assert.equal(waygateWing(2, N, wings).name, 'alps');
+  assert.equal(waygateWing(1, N, wings), null);
+  assert.equal(waygateWing(3, N, wings), null);
+  // second cycle: the same gates recur
+  assert.equal(waygateWing(5, N, wings).name, '');
+  assert.equal(waygateWing(7, N, wings).name, 'alps');
+  // a single wing needs no gates
+  assert.equal(waygateWing(0, 3, [{ name: '', start: 0, count: 3 }]), null);
+});
+
+test('segForPlateAhead lands on the right plate, always ahead', () => {
+  const L = 16, N = 8;
+  for (let s = 0; s < 600; s += 3.3) {
+    for (let plate = 0; plate < N; plate++) {
+      const idx = segForPlateAhead(s, plate, N, L);
+      assert.equal(mod(idx, N), plate, `plate identity at s=${s}`);
+      assert.ok(plateS(idx, L) > s, `ahead of walker at s=${s}`);
+      assert.ok(plateS(idx, L) - s <= N * L + L, `within one cycle at s=${s}`);
+    }
   }
 });
 

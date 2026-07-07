@@ -8,6 +8,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { groupWings } from './public/gallery-math.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -58,9 +59,12 @@ export async function scanPhotos(dir, base = dir, depth = 0, out = []) {
       await scanPhotos(full, base, depth + 1, out);
     } else if (IMAGE_EXTS.has(path.extname(e.name).toLowerCase())) {
       const rel = path.relative(base, full);
+      const parts = rel.split(path.sep);
       out.push({
         name: path.basename(e.name, path.extname(e.name)),
-        src: '/photos/' + rel.split(path.sep).map(encodeURIComponent).join('/'),
+        src: '/photos/' + parts.map(encodeURIComponent).join('/'),
+        // the wing this photo hangs in: its top-level subdirectory ('' = root)
+        wing: parts.length > 1 ? parts[0] : '',
       });
     }
   }
@@ -106,8 +110,9 @@ export function createGalleryServer(photoDir) {
     const p = url.pathname;
 
     if (p === '/api/photos') {
-      const photos = await scanPhotos(photoDir);
-      return send(res, 200, JSON.stringify({ dir: photoDir, photos }), {
+      // group into contiguous wings so subfolders hang together on the path
+      const { photos, wings } = groupWings(await scanPhotos(photoDir));
+      return send(res, 200, JSON.stringify({ dir: photoDir, photos, wings }), {
         'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-cache',
       });

@@ -10,6 +10,8 @@ whatever stands in **Unreleased**.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-06
+
 ### Added
 
 - **Wings & Waygates** — subfolders become *wings* of the gallery. Each
@@ -90,6 +92,7 @@ whatever stands in **Unreleased**.
   versions, npm publishing via OIDC trusted publishing, and the official
   site on GitHub Pages.
 
-[Unreleased]: https://github.com/acaylor/the-winding-gallery/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/acaylor/the-winding-gallery/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/acaylor/the-winding-gallery/compare/a125076...v0.2.0
 [0.1.0]: https://github.com/acaylor/the-winding-gallery/commits/a125076

@@ -669,7 +669,9 @@ function buildSegment(idx) {
     pathFrame(s, _pos, _tan, _side);
     const R = PATH_W / 2 + 1.3;
     const arch = new THREE.Mesh(new THREE.TorusGeometry(R, 0.34, 6, 22, Math.PI), stoneMat);
-    _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone());
+    // right-handed basis (side × up = -tan) — see the waygate note above;
+    // the torus is symmetric, so the old mirrored basis merely got lucky
+    _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone().multiplyScalar(-1));
     arch.quaternion.setFromRotationMatrix(_m);
     arch.position.set(_pos.x, _pos.y + 1.2, _pos.z);
     group.add(arch);
@@ -1144,7 +1146,7 @@ function openMap() {
   document.exitPointerLock?.();
   // mark where the walker stands
   for (const btn of wayList.querySelectorAll('button')) {
-    btn.classList.toggle('here', btn.dataset.wing === (currentWingName ?? ' '));
+    btn.classList.toggle('here', currentWingName !== null && btn.dataset.wing === currentWingName);
   }
 }
 function closeMap() {

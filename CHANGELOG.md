@@ -10,6 +10,30 @@ whatever stands in **Unreleased**.
 
 ## [Unreleased]
 
+### Added
+
+- **The luminous night** — a visual-fidelity pass over the whole realm:
+  - Real bloom (post-processing): lantern flames, the moon, the keeper's
+    wisp and the fireflies now genuinely glow.
+  - The night sky baked into an environment map, so the gold frames and
+    lantern metal finally have something to reflect.
+  - Moon shadows that travel with the walker; plinths, gates, curbs and
+    lanterns ground themselves on the path.
+  - A pool of real point lights that visits the nearest lantern flames
+    and photo plates — the path is lit by its own lanterns.
+  - A slow sea of moonlit mist beneath the causeway, an aurora breathing
+    over one shoulder of the sky, a faint river of stars, and far-off
+    island silhouettes carrying lantern-town sparks.
+  - Ambient-occlusion and roughness maps on the paving and rock
+    (ambientCG, CC0), and a cool rim-fill so off-path silhouettes keep
+    their shape.
+  - `?quality=low` keeps the previous lightweight pipeline (no bloom,
+    shadows or mist) for modest machines.
+
+### Fixed
+
+- Sky-gradient banding, dithered away in the sky shader.
+
 ## [0.3.0] - 2026-07-06
 
 ### Added

@@ -123,6 +123,54 @@ workflow learned dist-tag staging: `x.y.z-*` → `next`, stable → `latest`.
 - The release ritual, settled: branch → PR → tag `vX.Y.Z-rc.N` (staging
   on `next`) → verify the *installed* package → merge → tag `vX.Y.Z`.
 
+## VII · Wings & Waygates — v0.3.0 (2026-07-06)
+
+Structure for large libraries without giving up the one-endless-path
+design: subfolders became contiguous **wings**, each announced by a
+flame-lit stone waygate carved with its name; root-level strays gather
+in "the entrance hall." The **Wayfarer's Map** (`M`) lists every wing
+and sets the walker down just before its gate — arrival means walking
+through. Keep a Changelog adopted and wired into the publish workflow,
+and v0.3.0 became the first release whose GitHub notes wrote themselves.
+
+**Lessons:**
+
+- **Author CSS silently defeats the `hidden` attribute.** A
+  `display: grid` rule kept the map permanently visible while every DOM
+  assertion passed. A global `[hidden] { display: none !important; }`
+  retired the bug class; the E2E now asserts *computed* visibility.
+- **A left-handed basis mirrors geometry.** `setFromRotationMatrix`
+  expects a pure rotation; feeding it `(side, up, tan)` with determinant
+  −1 backface-culled every waygate name plate. Diagnosed by dumping the
+  scene over CDP: the plates existed, were visible, sat exactly where
+  they should — the only thing left to be wrong was which way they faced.
+
+## VIII · The Luminous Night — v0.4.0 (2026-07-07)
+
+A pure visual-fidelity release; nothing new to do, everything better to
+see. Bloom (UnrealBloomPass on a multisampled half-float target) so the
+flames, moon, wisp and fireflies genuinely glow; the night sky baked
+into a PMREM environment map so the gold finally reflects; moon shadows
+travelling with the walker; a pool of real point lights visiting the
+nearest lanterns and plates; a sea of moonlit mist below the causeway;
+an aurora; a milky-way band; far-off island silhouettes with
+lantern-town sparks; AO/roughness maps on the stone; `?quality=low` as
+the escape hatch.
+
+**Lessons:**
+
+- **Metals are only as good as their environment.** `metalness: 0.75`
+  with no environment map renders as flat brown — the "gold" frames had
+  nothing to reflect for three releases.
+- **With a composer, tone mapping moves to the final pass**, and
+  per-material `toneMapped: false` stops meaning anything — check what
+  that changes (here: the photos, which survived it fine).
+- **HDR emitters make bloom controllable.** Pushing emissive colors past
+  1.0 on a half-float target lets a threshold pick out exactly the
+  things that should glow.
+- Long dark gradients band on 8-bit displays; a hash dither in the sky
+  shader is invisible and free.
+
 ## The Ledger of Lessons
 
 1. Backface culling makes winding bugs look like missing geometry.
@@ -137,3 +185,11 @@ workflow learned dist-tag staging: `x.y.z-*` → `next`, stable → `latest`.
 9. **Prereleases exist to catch what dev environments cannot** — npm
    hoisting broke the shipped package while the repo worked perfectly.
 10. The only honest install test is installing the packed tarball.
+11. Author CSS beats the `hidden` attribute — pin it globally with
+    `[hidden] { display: none !important; }` and assert *computed*
+    visibility in E2E.
+12. `setFromRotationMatrix` wants a right-handed basis; determinant −1
+    means mirrored, culled geometry.
+13. Metal without an environment map isn't metal.
+14. Once a composer owns the frame, tone mapping is global — audit every
+    `toneMapped: false`.

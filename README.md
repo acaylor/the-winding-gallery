@@ -20,7 +20,7 @@ as you go.
 ![pnpm](https://img.shields.io/badge/pnpm-11-f69220?logo=pnpm&logoColor=white)
 ![Three.js](https://img.shields.io/badge/three.js-r185-8b5cf6)
 
-<img src="docs/screenshots/the-path.png" alt="The winding cobblestone causeway at night, plates glowing along the path" width="820">
+<img src="docs/screenshots/the-path.jpg" alt="The winding cobblestone causeway at night above a sea of moonlit mist, plates glowing along the path" width="820">
 
 </div>
 
@@ -39,7 +39,8 @@ place you can *walk through*:
   collection runs out, it begins again — the gallery never ends.
 - **A place, not a page.** Real CC0 surfaces (mossy cobblestones, rock,
   bark from [ambientCG](https://ambientcg.com)) and the Khronos CC0
-  lantern model, under moonlight, starlight and fireflies.
+  lantern model — under moonlight and moon-shadow, blooming lantern
+  flames, an aurora, fireflies, and a slow sea of mist below the path.
 - **Wings & waygates.** Subfolders become *wings* of the gallery: each
   hangs together on the path, announced by a stone waygate carved with
   its name. Press **M** for the Wayfarer's Map and step to any wing.
@@ -48,10 +49,10 @@ place you can *walk through*:
 
 | Walking the path | Beholding a plate |
 | --- | --- |
-| <img src="docs/screenshots/lantern.png" alt="A lantern hangs over the path" width="400"> | <img src="docs/screenshots/behold.png" alt="Beholding a plate up close, with its plaque panel" width="400"> |
+| <img src="docs/screenshots/lantern.jpg" alt="A lantern burns over the path" width="400"> | <img src="docs/screenshots/behold.jpg" alt="Beholding a plate up close, with its plaque panel" width="400"> |
 
 <div align="center">
-<img src="docs/screenshots/veil.png" alt="The entrance veil" width="640">
+<img src="docs/screenshots/veil.jpg" alt="The entrance veil" width="640">
 </div>
 
 ## 🚀 Quick start
@@ -119,8 +120,9 @@ pnpm test          # node --test: path math, server API, PNG conjurer
 Handy query params: `?auto` skips the entrance veil, `?s=120` starts
 120 m down the path, `?yaw=45` turns the starting view, `?behold` flies
 to the nearest plate, `?tour` starts the Keeper's Tour — pair it with
-`?auto` for a kiosk/TV slideshow. `window.__winding()` reports walker
-state for tooling.
+`?auto` for a kiosk/TV slideshow. `?quality=low` skips bloom, shadows
+and the mist sea for modest machines. `window.__winding()` reports
+walker state for tooling.
 
 Releases: CI runs the tests on every push. Tag `vX.Y.Z-rc.N` from a PR
 branch to stage a prerelease on the npm **`next`** dist-tag; tag

@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Winding Gallery — your photographs, hung along an endless sky-path</title>
-<meta name="description" content="A fantasy 3D photo gallery in the browser. Point it at any directory of photos and walk a moonlit cobblestone causeway where every photograph hangs as a gold-framed plate.">
+<meta name="description" content="A fantasy 3D photo gallery in the browser. Point it at any directory of photos and walk a moonlit cobblestone causeway where every photograph hangs as a gold-framed plate — subfolders become wings behind carved waygates, and a wisp can lead the tour.">
 <meta property="og:title" content="The Winding Gallery">
-<meta property="og:description" content="A fantasy 3D photo gallery — your photographs hung along an endless winding sky-path.">
+<meta property="og:description" content="A fantasy 3D photo gallery — your photographs hung along an endless winding sky-path, with wings, waygates, and a wisp-led tour.">
 <meta property="og:image" content="https://acaylor.github.io/the-winding-gallery/screenshots/hero-far.jpg">
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏮</text></svg>">
@@ -382,6 +382,21 @@
       <h3>Behold, up close</h3>
       <p>Look at a plate and press <b>E</b> — the view flies in and a parchment panel names it. Press <b>Esc</b> and drift back to the path exactly where you left it.</p>
     </div>
+    <div class="feature reveal">
+      <div class="glyph">ᛃ</div>
+      <h3>The Keeper's Tour</h3>
+      <p>Press <b>T</b> and a glowing wisp leads a self-playing exhibition, plate to plate, forever. Pair <code style="font-family:ui-monospace,Menlo,monospace;font-size:.9em">?auto&amp;tour</code> for a kiosk or TV slideshow.</p>
+    </div>
+    <div class="feature reveal">
+      <div class="glyph">ᚹ</div>
+      <h3>Wings &amp; waygates</h3>
+      <p>Subfolders become wings of the gallery — each hangs together on the path, announced by a stone waygate carved with its name in gold.</p>
+    </div>
+    <div class="feature reveal">
+      <div class="glyph">ᛞ</div>
+      <h3>The Wayfarer's Map</h3>
+      <p>Press <b>M</b>: every wing listed with its plate count and a <em>you are here</em> mark. Choose one and the night fades — you arrive walking through its gate.</p>
+    </div>
   </div>
 </section>
 
@@ -416,8 +431,23 @@
     </figure>
 
     <figure class="plate wide reveal">
+      <div class="frame"><img src="screenshots/waygate.jpg" alt="A stone waygate carved with COAST in gold spans the cobblestone path" loading="lazy"></div>
+      <figcaption class="plaque"><span class="num">Plate VII</span>the waygate to the wing of coast</figcaption>
+    </figure>
+
+    <figure class="plate reveal">
+      <div class="frame"><img src="screenshots/keepers-tour.jpg" alt="The keeper's wisp glows above the path while the tour badge shows in the HUD" loading="lazy"></div>
+      <figcaption class="plaque"><span class="num">Plate VIII</span>the keeper leads the tour</figcaption>
+    </figure>
+
+    <figure class="plate reveal">
+      <div class="frame"><img src="screenshots/wayfarers-map.jpg" alt="The Wayfarer's Map overlay listing the wings of the gallery" loading="lazy"></div>
+      <figcaption class="plaque"><span class="num">Plate IX</span>the wayfarer's map, wings one step away</figcaption>
+    </figure>
+
+    <figure class="plate wide reveal">
       <div class="frame"><img src="screenshots/veil.jpg" alt="The entrance veil: The Winding Gallery, eight photographs await along the path" loading="lazy"></div>
-      <figcaption class="plaque"><span class="num">Plate VII</span>the veil, before you step through</figcaption>
+      <figcaption class="plaque"><span class="num">Plate X</span>the veil, before you step through</figcaption>
     </figure>
   </div>
 </section>
@@ -457,6 +487,8 @@
     <tr><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> + mouse</td><td>walk and look — <kbd>Shift</kbd> to hurry</td></tr>
     <tr><td><kbd>Scroll</kbd></td><td>glide along the path, hands-free</td></tr>
     <tr><td><kbd>E</kbd> / <kbd>Click</kbd> a plate</td><td>behold it up close, name and number revealed</td></tr>
+    <tr><td><kbd>T</kbd></td><td>the keeper's tour — a wisp leads, any key hands the path back</td></tr>
+    <tr><td><kbd>M</kbd></td><td>the wayfarer's map — step to any wing of the gallery</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>return to the path</td></tr>
     <tr><td><kbd>H</kbd></td><td>toggle the hints</td></tr>
   </table>

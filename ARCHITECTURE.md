@@ -32,6 +32,7 @@ edit is what runs.
 | --- | --- | --- |
 | Runtime | Node ≥ 22 (24 LTS recommended, `.node-version`) | pnpm 11 needs ≥ 22.13; 24 is current LTS |
 | Rendering | three.js r185 (only dependency) | WebGL scene graph; served from `node_modules`, resolved via `createRequire()` so npm hoisting can't break it |
+| Post-processing | three.js `EffectComposer` + `UnrealBloomPass` | HDR bloom on a multisampled half-float target; sky-baked PMREM environment; moon shadows; `?quality=low` opts out |
 | Server | `node:http`, hand-rolled routes | ~150 lines; no framework to version-manage |
 | Package manager | pnpm 11 (`packageManager` field) | fast, strict, content-addressed store |
 | Tests | `node --test` | zero test-framework dependencies |

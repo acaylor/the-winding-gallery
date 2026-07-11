@@ -2,6 +2,11 @@
 // An endless winding sky-path hung with your photographs.
 import * as THREE from 'three';
 import { GLTFLoader } from '/vendor/three-addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from '/vendor/three-addons/libs/meshopt_decoder.module.js';
+import { EffectComposer } from '/vendor/three-addons/postprocessing/EffectComposer.js';
+import { RenderPass } from '/vendor/three-addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from '/vendor/three-addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from '/vendor/three-addons/postprocessing/OutputPass.js';
 import {
   STEP, extendPath as extendPathState, makePathState,
   seededRand, mod, romanize, plateS, nextPlateIndex,
@@ -28,6 +33,12 @@ const COL = {
   flame: 0xffc46b,
   moss: 0x55703a,
 };
+
+// colors pushed past 1.0 render as HDR emitters, which is what the bloom
+// pass picks out of the frame
+function hotColor(hex, k) {
+  return new THREE.Color(hex).multiplyScalar(k);
+}
 
 // ───────────────────────────────────────── the winding path ──
 // A heading integrated over gentle overlapping sine curvature, so the
@@ -60,6 +71,9 @@ function pathFrame(s, pos, tan, side) {
 }
 
 // ───────────────────────────────────────── renderer & scene ──
+// ?quality=low keeps the pre-0.4 pipeline: no bloom, no shadows, no mist
+const LOW_FX = new URLSearchParams(location.search).get('quality') === 'low';
+
 const canvas = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -67,19 +81,55 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.08;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+if (!LOW_FX) {
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+}
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(COL.fog, 0.011);
+scene.fog = new THREE.FogExp2(COL.fog, 0.0105);
 
 const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 2500);
 
-scene.add(new THREE.HemisphereLight(0x54628f, 0x2a2138, 1.7));
+// post: bloom so the flames, moon and wisp genuinely glow (tone mapping
+// moves into the OutputPass; the multisampled HDR target keeps the AA)
+let composer = null;
+if (!LOW_FX) {
+  const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, {
+    type: THREE.HalfFloatType, samples: 4,
+  });
+  composer = new EffectComposer(renderer, rt);
+  composer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  composer.addPass(new RenderPass(scene, camera));
+  composer.addPass(new UnrealBloomPass(
+    new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.55, 0.85));
+  composer.addPass(new OutputPass());
+}
+
+const MOON_DIR = new THREE.Vector3(-0.4, 0.8, -0.5).normalize();
+scene.add(new THREE.HemisphereLight(0x54628f, 0x2a2138, 1.45));
 const moonLight = new THREE.DirectionalLight(0x93a9e8, 1.0);
-moonLight.position.set(-0.4, 0.8, -0.5);
-scene.add(moonLight);
+moonLight.position.copy(MOON_DIR);
+scene.add(moonLight, moonLight.target);
+if (!LOW_FX) {
+  // the moon casts shadows within a frustum that follows the walker
+  moonLight.castShadow = true;
+  moonLight.shadow.mapSize.set(2048, 2048);
+  const sc = moonLight.shadow.camera;
+  sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45;
+  sc.near = 1; sc.far = 260;
+  moonLight.shadow.bias = -0.0004;
+  moonLight.shadow.normalBias = 0.35;
+}
+
+// a cool fill from the moonless side, so the off-path silhouettes keep
+// their shape instead of collapsing to black
+const rimLight = new THREE.DirectionalLight(0x5e6fae, 0.5);
+rimLight.position.set(0.55, 0.2, 0.6);
+scene.add(rimLight);
 
 // Warm lantern-light that travels with the walker
-const walkerLight = new THREE.PointLight(COL.flame, 34, 30, 2);
+const walkerLight = new THREE.PointLight(COL.flame, 26, 30, 2);
 scene.add(walkerLight);
 
 // ───────────────────────────────────────── sky, stars, moon ──
@@ -99,8 +149,18 @@ const skyMat = new THREE.ShaderMaterial({
     }`,
   fragmentShader: `
     varying vec3 vDir;
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+    float noise(vec2 p) {
+      vec2 i = floor(p), f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x),
+                 mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+    }
     void main() {
-      float h = normalize(vDir).y;
+      vec3 dir = normalize(vDir);
+      float h = dir.y;
       vec3 zenith  = vec3(0.012, 0.016, 0.045);
       vec3 mid     = vec3(0.055, 0.055, 0.13);
       vec3 horizon = vec3(0.16, 0.11, 0.22);
@@ -108,6 +168,14 @@ const skyMat = new THREE.ShaderMaterial({
       col = mix(horizon, col, smoothstep(-0.06, 0.14, h));
       // faint warm haze low on the horizon, like far-off lantern towns
       col += vec3(0.10, 0.06, 0.02) * exp(-abs(h + 0.02) * 14.0);
+      // the great river of stars, a soft clouded band across the night
+      float band = abs(dot(dir, normalize(vec3(0.62, 0.34, -0.42))));
+      float mw = exp(-band * band * 22.0);
+      float cloud = noise(vec2(atan(dir.z, dir.x) * 5.0, dir.y * 7.0));
+      cloud = 0.35 + 0.65 * cloud * cloud;
+      col += vec3(0.055, 0.06, 0.095) * mw * cloud * smoothstep(0.0, 0.25, h);
+      // dither, or the long gradients ribbon into visible bands
+      col += (hash(gl_FragCoord.xy) - 0.5) / 160.0;
       gl_FragColor = vec4(col, 1.0);
     }`,
 });
@@ -159,7 +227,7 @@ skyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1600, 32, 20), skyMat));
 {
   const moon = new THREE.Mesh(
     new THREE.CircleGeometry(46, 40),
-    new THREE.MeshBasicMaterial({ color: 0xf2ecd8, fog: false })
+    new THREE.MeshBasicMaterial({ color: hotColor(0xf2ecd8, 1.35), fog: false })
   );
   const dir = new THREE.Vector3(-0.42, 0.5, -0.75).normalize();
   moon.position.copy(dir).multiplyScalar(1400);
@@ -173,6 +241,31 @@ skyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1600, 32, 20), skyMat));
   halo.scale.setScalar(340);
   halo.position.copy(moon.position).multiplyScalar(0.985);
   skyGroup.add(halo);
+}
+
+// bake the night into an environment map, so gold frames and lantern
+// metal have a sky to reflect — plus a few warm glints standing in for
+// the lanterns along the path
+{
+  const envScene = new THREE.Scene();
+  envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 20), skyMat));
+  const moonBall = new THREE.Mesh(
+    new THREE.SphereGeometry(3.2, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xfff6dd })
+  );
+  moonBall.position.set(-0.42, 0.5, -0.75).normalize().multiplyScalar(44);
+  envScene.add(moonBall);
+  const glintMat = new THREE.MeshBasicMaterial({ color: 0xffb45a });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + 0.4;
+    const glint = new THREE.Mesh(new THREE.SphereGeometry(0.9, 8, 6), glintMat);
+    glint.position.set(Math.cos(a) * 30, -1.5 + (i % 3), Math.sin(a) * 30);
+    envScene.add(glint);
+  }
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(envScene, 0.04).texture;
+  scene.environmentIntensity = 0.38;
+  pmrem.dispose();
 }
 
 function makeGlowTexture(color) {
@@ -202,25 +295,32 @@ function surface(url, { srgb = false, repeat = null } = {}) {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   if (srgb) t.colorSpace = THREE.SRGBColorSpace;
   if (repeat) t.repeat.set(...repeat);
-  t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  t.anisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
   return t;
 }
 const pavingColor = surface('/assets/paving-color.jpg', { srgb: true });
 const pavingNormal = surface('/assets/paving-normal.jpg');
+const pavingAO = surface('/assets/paving-ao.jpg');
+const pavingRough = surface('/assets/paving-rough.jpg');
 const rockColor = surface('/assets/rock-color.jpg', { srgb: true });
 const rockNormal = surface('/assets/rock-normal.jpg');
+const rockAO = surface('/assets/rock-ao.jpg');
 const barkColor = surface('/assets/bark-color.jpg', { srgb: true });
 const barkNormal = surface('/assets/bark-normal.jpg');
 
 const floorMat = new THREE.MeshStandardMaterial({
   map: pavingColor, normalMap: pavingNormal,
-  vertexColors: true, roughness: 0.95,
+  aoMap: pavingAO, aoMapIntensity: 0.85,
+  roughnessMap: pavingRough, roughness: 1,
+  vertexColors: true,
 });
 const stoneMat = new THREE.MeshStandardMaterial({
-  map: rockColor, normalMap: rockNormal, color: 0xbdc2d6, roughness: 1,
+  map: rockColor, normalMap: rockNormal, aoMap: rockAO,
+  color: 0xbdc2d6, roughness: 1,
 });
 const stoneDarkMat = new THREE.MeshStandardMaterial({
-  map: rockColor, normalMap: rockNormal, color: 0x7d8298, roughness: 1,
+  map: rockColor, normalMap: rockNormal, aoMap: rockAO,
+  color: 0x7d8298, roughness: 1,
 });
 const skirtMat = new THREE.MeshStandardMaterial({
   map: rockColor, normalMap: rockNormal, color: 0x6a6e84, roughness: 1, side: THREE.DoubleSide,
@@ -229,9 +329,9 @@ const barkMat = new THREE.MeshStandardMaterial({
   map: barkColor, normalMap: barkNormal, roughness: 1,
 });
 const goldMat = new THREE.MeshStandardMaterial({
-  color: COL.goldDeep, metalness: 0.75, roughness: 0.38, emissive: 0x2c1f06,
+  color: COL.goldDeep, metalness: 0.85, roughness: 0.32, emissive: 0x2c1f06,
 });
-const flameMat = new THREE.MeshBasicMaterial({ color: COL.flame });
+const flameMat = new THREE.MeshBasicMaterial({ color: hotColor(COL.flame, 2.2) });
 const mossMat = new THREE.MeshStandardMaterial({ color: COL.moss, roughness: 1, flatShading: true });
 
 const glowTex = makeGlowTexture('#ffc46b');
@@ -262,6 +362,89 @@ for (let v = 0; v < 4; v++) {
 }
 const pineGeo = new THREE.ConeGeometry(0.55, 1.6, 6);
 const trunkGeo = new THREE.CylinderGeometry(0.09, 0.12, 0.5, 5);
+
+// ───────────────────────────────────────── the deep distance ──
+// Far islands adrift on the horizon — some carrying a lantern-town
+// spark — so the vista has landmarks instead of empty fog. Built once
+// the rock model has loaded (boot), so they share its silhouette.
+function buildHorizonIsles() {
+  const isleMat = new THREE.MeshBasicMaterial({ color: 0x10122a, fog: false });
+  const isleRand = seededRand(4099);
+  for (let i = 0; i < 10; i++) {
+    const a = isleRand() * Math.PI * 2;
+    const d = 1050 + isleRand() * 320;
+    const proto = rockProtos.length ? rockProtos[i % rockProtos.length] : null;
+    const isle = proto
+      ? new THREE.Mesh(proto.geometry, isleMat)
+      : new THREE.Mesh(rockGeos[i % rockGeos.length], isleMat);
+    const w = 36 + isleRand() * 60, h = 20 + isleRand() * 26;
+    isle.position.set(Math.cos(a) * d, (-0.015 + isleRand() * 0.05) * d, Math.sin(a) * d);
+    if (proto) {
+      isle.scale.set(w / proto.half, h / proto.height, w / proto.half);
+      isle.position.y -= h * 0.4; // origin at the rock's base, not its middle
+    } else {
+      isle.scale.set(w, h, w);
+    }
+    isle.rotation.y = isleRand() * Math.PI * 2;
+    skyGroup.add(isle);
+    if (isleRand() < 0.6) {
+      const spark = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: makeGlowTexture('#ffc46b'), color: hotColor(COL.flame, 1.3),
+        transparent: true, opacity: 0.7,
+        blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      }));
+      spark.scale.setScalar(30);
+      spark.position.copy(isle.position);
+      spark.position.y += h * 0.9;
+      skyGroup.add(spark);
+    }
+  }
+}
+
+// an aurora, breathing slowly over one shoulder of the night
+const auroraMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, fog: false, side: THREE.DoubleSide,
+  blending: THREE.AdditiveBlending,
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      vec3 p = position;
+      // drape the ribbon so it hangs like a curtain, not a billboard
+      p.y += sin(uv.x * 9.4) * 60.0;
+      p.z += sin(uv.x * 5.1 + 1.7) * 130.0;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+    }`,
+  fragmentShader: `
+    varying vec2 vUv;
+    uniform float uTime;
+    float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float noise(vec2 p) {
+      vec2 i = floor(p), f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x),
+                 mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+    }
+    void main() {
+      // slow vertical curtains, folding sideways over minutes
+      float n = noise(vec2(vUv.x * 11.0 + uTime * 0.05, uTime * 0.03));
+      float n2 = noise(vec2(vUv.x * 23.0 - uTime * 0.03, 7.0 + uTime * 0.02));
+      float curtain = smoothstep(0.25, 0.9, n * 0.7 + n2 * 0.45);
+      float body = smoothstep(0.02, 0.25, vUv.y) * smoothstep(1.0, 0.35, vUv.y);
+      // the ribbon must dissolve before its plane runs out
+      body *= smoothstep(0.0, 0.22, vUv.x) * smoothstep(1.0, 0.78, vUv.x);
+      vec3 c = mix(vec3(0.10, 0.62, 0.34), vec3(0.16, 0.30, 0.58), vUv.y * 1.4);
+      float a = curtain * body * 0.42;
+      gl_FragColor = vec4(c * a, a);
+    }`,
+});
+{
+  const aurora = new THREE.Mesh(new THREE.PlaneGeometry(2000, 520, 96, 10), auroraMat);
+  aurora.position.set(-850, 560, -750);
+  aurora.lookAt(0, 180, 0);
+  skyGroup.add(aurora);
+}
 
 // rune glyphs stamped faintly into the flagstones
 const RUNES = ['ᚠ', 'ᚢ', 'ᚦ', 'ᚨ', 'ᚱ', 'ᚲ', 'ᚷ', 'ᚹ', 'ᛃ', 'ᛈ', 'ᛞ', 'ᛟ'];
@@ -299,6 +482,33 @@ const placeholderTex = (() => {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 })();
+
+// ──────────────────────────────── the drifting rocks (Poly Haven CC0) ──
+// Photoscanned boulders; every island adrift around the path is an
+// instance of one. Falls back to the old jittered shards if none load.
+const rockProtos = [];       // { geometry, material, half, height } — origin on the footprint
+function loadIsleRocks() {
+  const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder); // the rocks are meshopt-compressed
+  return Promise.all(['/assets/isle-rock-1.glb', '/assets/isle-rock-2.glb', '/assets/isle-rock-3.glb']
+    .map((url) => new Promise((resolve) => {
+      loader.load(url, (gltf) => {
+        gltf.scene.traverse((o) => {
+          if (o.isMesh) {
+            const g = o.geometry;
+            g.computeBoundingBox();
+            const bb = g.boundingBox;
+            // center each rock on its own footprint, sitting on y=0
+            g.translate(
+              -(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
+            const half = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2;
+            rockProtos.push({ geometry: g, material: o.material, half, height: bb.max.y - bb.min.y });
+          }
+        });
+        resolve();
+      }, undefined, () => resolve());
+    })));
+}
 
 // ───────────────────────────────────────── the lantern (Khronos CC0 model) ──
 let lanternProto = null;                                // Group, ground at y=0, arm along +X
@@ -399,7 +609,7 @@ function buildSegment(idx) {
   const rand = seededRand(idx * 7919);
   const s0 = idx * SEG_LEN;
   const group = new THREE.Group();
-  const seg = { group, disposables: [], photoSrcs: [], bobbers: [], idx };
+  const seg = { group, disposables: [], photoSrcs: [], bobbers: [], lamps: [], idx };
 
   // — flagstone floor ribbon, vertex-tinted —
   {
@@ -435,6 +645,7 @@ function buildSegment(idx) {
     g.setIndex(idxArr);
     g.computeVertexNormals();
     const m = new THREE.Mesh(g, floorMat);
+    m.receiveShadow = true;
     group.add(m);
     seg.disposables.push(g);
 
@@ -451,6 +662,7 @@ function buildSegment(idx) {
   {
     const per = Math.floor(SEG_LEN / 1.6);
     const inst = new THREE.InstancedMesh(curbGeo, stoneDarkMat, per * 2);
+    inst.castShadow = inst.receiveShadow = true;
     let n = 0;
     const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3();
     for (let sideSign = -1; sideSign <= 1; sideSign += 2) {
@@ -512,6 +724,8 @@ function buildSegment(idx) {
     plinth.position.y = 0.55;
     const cap = new THREE.Mesh(capGeo, stoneDarkMat);
     cap.position.y = 1.2;
+    plinth.castShadow = plinth.receiveShadow = true;
+    cap.castShadow = cap.receiveShadow = true;
     stand.add(plinth, cap);
 
     // frame + photo plane (rescaled to true aspect once loaded)
@@ -527,6 +741,7 @@ function buildSegment(idx) {
 
     const border = new THREE.Mesh(boxFrameGeometry(1, 1, 0.14, 0.09), goldMat);
     border.position.z = -0.02;
+    border.castShadow = true;
     frameGroup.add(border);
     seg.disposables.push(border.geometry);
 
@@ -576,6 +791,13 @@ function buildSegment(idx) {
     photoMesh.userData.photo = photo;
     photoMesh.userData.plate = photoIdx;
     photoMeshes.push({ mesh: photoMesh, segIdx: idx });
+    // a soft warm light before the plate, so plinth and frame read at night
+    seg.lamps.push({
+      x: base.x - _side.x * sideSign * 1.4,
+      y: base.y + 1.7,
+      z: base.z - _side.z * sideSign * 1.4,
+      i: 11, phase: rand() * 9,
+    });
     group.add(stand);
   }
 
@@ -593,12 +815,15 @@ function buildSegment(idx) {
 
     let headY = 2.75, headX = 0;
     if (lanternProto) {
-      lantern.add(lanternProto.clone(true));
+      const model = lanternProto.clone(true);
+      model.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      lantern.add(model);
       headX = lanternHead.x;
       headY = lanternHead.y;
     } else {
       const post = new THREE.Mesh(postGeo, stoneDarkMat);
       post.position.y = 1.35;
+      post.castShadow = true;
       const cage = new THREE.Mesh(cageGeo, goldMat);
       cage.position.y = 2.75;
       const flame = new THREE.Mesh(flameGeo, flameMat);
@@ -606,14 +831,22 @@ function buildSegment(idx) {
       lantern.add(post, cage, flame);
     }
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: glowTex, color: COL.flame, transparent: true, opacity: 0.75,
+      map: glowTex, color: hotColor(COL.flame, 1.7), transparent: true, opacity: 0.75,
       blending: THREE.AdditiveBlending, depthWrite: false,
     }));
     glow.scale.setScalar(2.6);
     glow.position.set(headX, headY, 0);
     lantern.add(glow);
     seg.disposables.push(glow.material);
-    seg.bobbers.push({ obj: glow, base: headY, amp: 0, flick: glow.material, phase: rand() * 9 });
+    const phase = rand() * 9;
+    seg.bobbers.push({ obj: glow, base: headY, amp: 0, flick: glow.material, phase });
+    // where a real light may burn, if this lantern is among the nearest
+    seg.lamps.push({
+      x: lantern.position.x + Math.cos(lantern.rotation.y) * headX,
+      y: lantern.position.y + headY,
+      z: lantern.position.z - Math.sin(lantern.rotation.y) * headX,
+      phase,
+    });
     group.add(lantern);
   }
 
@@ -631,12 +864,14 @@ function buildSegment(idx) {
       const pillar = new THREE.Mesh(gatePillarGeo, stoneMat);
       pillar.position.set(_pos.x + _side.x * R * ss, _pos.y + 1.8, _pos.z + _side.z * R * ss);
       pillar.quaternion.setFromRotationMatrix(basis);
+      pillar.castShadow = pillar.receiveShadow = true;
       const cap = new THREE.Mesh(gateCapGeo, stoneDarkMat);
       cap.position.copy(pillar.position);
       cap.position.y = _pos.y + 3.74;
       cap.quaternion.copy(pillar.quaternion);
+      cap.castShadow = true;
       const flame = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: glowTex, color: COL.flame, transparent: true, opacity: 0.7,
+        map: glowTex, color: hotColor(COL.flame, 1.7), transparent: true, opacity: 0.7,
         blending: THREE.AdditiveBlending, depthWrite: false,
       }));
       flame.scale.setScalar(1.7);
@@ -644,11 +879,14 @@ function buildSegment(idx) {
       flame.position.y += 0.45;
       group.add(pillar, cap, flame);
       seg.disposables.push(flame.material);
-      seg.bobbers.push({ obj: flame, base: flame.position.y, amp: 0, flick: flame.material, phase: rand() * 9 });
+      const phase = rand() * 9;
+      seg.bobbers.push({ obj: flame, base: flame.position.y, amp: 0, flick: flame.material, phase });
+      seg.lamps.push({ x: flame.position.x, y: flame.position.y, z: flame.position.z, phase });
     }
     const lintel = new THREE.Mesh(gateLintelGeo, stoneMat);
     lintel.position.set(_pos.x, _pos.y + 4.0, _pos.z);
     lintel.quaternion.setFromRotationMatrix(basis);
+    lintel.castShadow = true;
     group.add(lintel);
     // the wing's name, carved on both faces
     // the wing's name, carved on both faces: the basis plane (+Z → -tan)
@@ -665,7 +903,9 @@ function buildSegment(idx) {
       group.add(plate);
     }
   } else if (idx % 6 === 3) {
-    const s = s0 + SEG_LEN * 0.5;
+    // stand the arch at the segment's start, well clear of the photo
+    // plate that always occupies the midpoint
+    const s = s0 + 1.6;
     pathFrame(s, _pos, _tan, _side);
     const R = PATH_W / 2 + 1.3;
     const arch = new THREE.Mesh(new THREE.TorusGeometry(R, 0.34, 6, 22, Math.PI), stoneMat);
@@ -674,17 +914,21 @@ function buildSegment(idx) {
     _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone().multiplyScalar(-1));
     arch.quaternion.setFromRotationMatrix(_m);
     arch.position.set(_pos.x, _pos.y + 1.2, _pos.z);
+    arch.castShadow = true;
     group.add(arch);
     seg.disposables.push(arch.geometry);
     for (const ss of [-1, 1]) {
       const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.6, 0.8), stoneDarkMat);
       pillar.position.set(_pos.x + _side.x * R * ss, _pos.y + 0.6, _pos.z + _side.z * R * ss);
+      pillar.castShadow = pillar.receiveShadow = true;
       group.add(pillar);
       seg.disposables.push(pillar.geometry);
     }
   }
 
-  // — floating rocks adrift around the path —
+  // — floating islands adrift around the path —
+  // photoscanned mossy rock (Poly Haven), yawed and stretched per island;
+  // the jittered shards remain only as a fallback if the model failed
   {
     const n = 2 + Math.floor(rand() * 3);
     for (let j = 0; j < n; j++) {
@@ -692,33 +936,42 @@ function buildSegment(idx) {
       pathFrame(s, _pos, _tan, _side);
       const lat = (rand() < 0.5 ? -1 : 1) * (9 + rand() * 26);
       const y = _pos.y + (rand() - 0.35) * 16 - 4;
-      const rock = new THREE.Mesh(rockGeos[Math.floor(rand() * rockGeos.length)], stoneDarkMat);
+      const phase = rand() * 9;
+      let rock, topY;
+      if (rockProtos.length) {
+        const proto = rockProtos[Math.floor(rand() * rockProtos.length)];
+        rock = new THREE.Mesh(proto.geometry, proto.material);
+        const k = (1.6 + rand() * 3.2) / proto.half;
+        rock.scale.set(
+          k * (0.8 + rand() * 0.5),
+          k * (0.7 + rand() * 0.55),
+          k * (0.8 + rand() * 0.5));
+        rock.rotation.y = rand() * Math.PI * 2; // yaw only — the weathered top stays up
+        topY = proto.height * rock.scale.y;
+      } else {
+        rock = new THREE.Mesh(rockGeos[Math.floor(rand() * rockGeos.length)], stoneDarkMat);
+        rock.scale.setScalar(1 + rand() * 3.2);
+        rock.rotation.set(rand() * 0.6, rand() * Math.PI * 2, rand() * 0.6);
+        topY = rock.scale.y * 0.55;
+      }
+      rock.receiveShadow = true;
       rock.position.set(_pos.x + _side.x * lat, y, _pos.z + _side.z * lat);
-      rock.scale.setScalar(1 + rand() * 3.2);
-      rock.rotation.set(rand() * 0.6, rand() * Math.PI * 2, rand() * 0.6);
       group.add(rock);
-      seg.bobbers.push({ obj: rock, base: y, amp: 0.35 + rand() * 0.5, phase: rand() * 9 });
+      seg.bobbers.push({ obj: rock, base: y, amp: 0.35 + rand() * 0.5, phase });
 
-      if (rand() < 0.4) {
-        const moss = new THREE.Mesh(capGeo, mossMat);
-        moss.scale.set(rock.scale.x * 1.5, 0.5, rock.scale.z * 1.5);
-        moss.position.copy(rock.position);
-        moss.position.y += rock.scale.y * 0.55;
-        group.add(moss);
-        seg.bobbers.push({ obj: moss, base: moss.position.y, amp: 0.35, phase: seg.bobbers.at(-1).phase });
-        if (rand() < 0.6) {
-          const tree = new THREE.Group();
-          const trunk = new THREE.Mesh(trunkGeo, barkMat);
-          const cone = new THREE.Mesh(pineGeo, mossMat);
-          cone.position.y = 1.2;
-          trunk.position.y = 0.2;
-          tree.add(trunk, cone);
-          tree.scale.setScalar(0.8 + rand() * 1.4);
-          tree.position.copy(moss.position);
-          tree.position.y += 0.2;
-          group.add(tree);
-          seg.bobbers.push({ obj: tree, base: tree.position.y, amp: 0.35, phase: seg.bobbers.at(-1).phase });
-        }
+      if (rand() < 0.5) {
+        const tree = new THREE.Group();
+        const trunk = new THREE.Mesh(trunkGeo, barkMat);
+        const cone = new THREE.Mesh(pineGeo, mossMat);
+        trunk.castShadow = cone.castShadow = true;
+        cone.position.y = 1.2;
+        trunk.position.y = 0.2;
+        tree.add(trunk, cone);
+        tree.scale.setScalar(0.8 + rand() * 1.4);
+        tree.position.copy(rock.position);
+        tree.position.y += topY * 0.82;
+        group.add(tree);
+        seg.bobbers.push({ obj: tree, base: tree.position.y, amp: 0.35, phase });
       }
     }
   }
@@ -900,6 +1153,88 @@ function updateFireflies(playerS, t) {
   ffGeo.attributes.position.needsUpdate = true;
 }
 
+// ───────────────────────────────────────── burning lanterns ──
+// A small pool of real point lights visits the nearest lantern flames,
+// so the path is lit by its own lanterns and not only the walker's glow.
+const lampPool = [];
+if (!LOW_FX) {
+  for (let i = 0; i < 6; i++) {
+    const l = new THREE.PointLight(COL.flame, 0, 15, 2);
+    scene.add(l);
+    lampPool.push(l);
+  }
+}
+const _lampsByDist = [];
+function updateLamps(t) {
+  if (!lampPool.length) return;
+  _lampsByDist.length = 0;
+  for (const seg of segments.values())
+    for (const lamp of seg.lamps) {
+      const dx = lamp.x - camera.position.x, dz = lamp.z - camera.position.z;
+      _lampsByDist.push([dx * dx + dz * dz, lamp]);
+    }
+  _lampsByDist.sort((a, b) => a[0] - b[0]);
+  for (let i = 0; i < lampPool.length; i++) {
+    const light = lampPool[i];
+    if (!_lampsByDist[i]) { light.intensity = 0; continue; }
+    const lamp = _lampsByDist[i][1];
+    const base = lamp.i ?? 9;
+    light.position.set(lamp.x, lamp.y, lamp.z);
+    light.intensity = base + base * 0.26 * Math.sin(t * 7 + lamp.phase) * Math.sin(t * 3.1 + lamp.phase * 2);
+  }
+}
+
+// ───────────────────────────────────────── the mist sea ──
+// A slow sea of moonlit cloud far beneath the causeway. The noise is
+// anchored in world space, so the sea stays put while the plane that
+// carries it follows the walker.
+let mist = null;
+if (!LOW_FX) {
+  const mistMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: false,
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      varying vec3 vWorld;
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        vec4 w = modelMatrix * vec4(position, 1.0);
+        vWorld = w.xyz;
+        gl_Position = projectionMatrix * viewMatrix * w;
+      }`,
+    fragmentShader: `
+      varying vec3 vWorld;
+      varying vec2 vUv;
+      uniform float uTime;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float noise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x),
+                   mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
+      }
+      float fbm(vec2 p) {
+        float v = 0.0, a = 0.5;
+        for (int k = 0; k < 4; k++) { v += a * noise(p); p *= 2.13; a *= 0.5; }
+        return v;
+      }
+      void main() {
+        vec2 p = vWorld.xz * 0.014;
+        float m = fbm(p + vec2(uTime * 0.014, uTime * 0.008));
+        m = smoothstep(0.32, 0.9, m + 0.18 * fbm(p * 3.1 - uTime * 0.01));
+        // the plane's rim must never show
+        float rim = smoothstep(0.5, 0.26, distance(vUv, vec2(0.5)));
+        vec3 col = mix(vec3(0.030, 0.038, 0.085), vec3(0.155, 0.17, 0.27), m);
+        gl_FragColor = vec4(col, m * rim * 0.45);
+      }`,
+  });
+  mist = new THREE.Mesh(new THREE.PlaneGeometry(1100, 1100), mistMat);
+  mist.rotation.x = -Math.PI / 2;
+  mist.renderOrder = -1;
+  scene.add(mist);
+  skyGroup.userData.mistMat = mistMat;
+}
+
 // ───────────────────────────────────────── the Keeper's Tour ──
 // Press T and a wisp leads a self-playing exhibition: it drifts to the
 // next plate, the view flies in to behold it a while, then moves on.
@@ -911,10 +1246,10 @@ const wisp = new THREE.Group();
 {
   const core = new THREE.Mesh(
     new THREE.IcosahedronGeometry(0.09, 1),
-    new THREE.MeshBasicMaterial({ color: 0xffe9b0 })
+    new THREE.MeshBasicMaterial({ color: hotColor(0xffe9b0, 1.9) })
   );
   const glow = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: makeGlowTexture('#ffd98a'), color: 0xffc46b, transparent: true,
+    map: makeGlowTexture('#ffd98a'), color: hotColor(0xffc46b, 1.5), transparent: true,
     opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false,
   }));
   glow.scale.setScalar(1.4);
@@ -1103,6 +1438,7 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  composer?.setSize(innerWidth, innerHeight);
 });
 
 // ───────────────────────────────────────── the Wayfarer's Map ──
@@ -1297,7 +1633,8 @@ function computeWalkPose(dt) {
 // ───────────────────────────────────────── boot ──
 async function boot() {
   try {
-    const [res] = await Promise.all([fetch('/api/photos'), loadLantern()]);
+    const [res] = await Promise.all([fetch('/api/photos'), loadLantern(), loadIsleRocks()]);
+    buildHorizonIsles();
     const data = await res.json();
     photos = data.photos;
     wings = data.wings || [];
@@ -1362,6 +1699,7 @@ window.__winding = () => ({
   wing: currentWingName,
   wings: wings.length,
   mapOpen,
+  fx: !LOW_FX,
 });
 
 function animate() {
@@ -1416,7 +1754,19 @@ function animate() {
   // walker's lantern-light drifts just ahead, flickering gently
   pathFrame(player.s + 3, _pos, _tan, _side);
   walkerLight.position.set(_pos.x, _pos.y + 2.4, _pos.z);
-  walkerLight.intensity = 24 + Math.sin(t * 9.3) * 2.2 + Math.sin(t * 23.7) * 1.3;
+  walkerLight.intensity = 18 + Math.sin(t * 9.3) * 2.2 + Math.sin(t * 23.7) * 1.3;
+
+  // the moon's shadow frustum travels with the walker
+  if (moonLight.castShadow) {
+    moonLight.position.copy(walkPos).addScaledVector(MOON_DIR, 120);
+    moonLight.target.position.copy(walkPos);
+  }
+  updateLamps(t);
+  if (mist) {
+    mist.position.set(camera.position.x, camera.position.y - 24, camera.position.z);
+    mist.material.uniforms.uTime.value = t;
+  }
+  auroraMat.uniforms.uTime.value = t;
 
   skyGroup.position.copy(camera.position);
   skyGroup.userData.starMat.uniforms.uTime.value = t;
@@ -1425,7 +1775,8 @@ function animate() {
   hoverTick += dt;
   if (hoverTick > 0.08) { hoverTick = 0; updateHover(); updateWing(); }
 
-  renderer.render(scene, camera);
+  if (composer) composer.render();
+  else renderer.render(scene, camera);
 }
 
 boot();

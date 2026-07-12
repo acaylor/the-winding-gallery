@@ -6,6 +6,7 @@ import { MeshoptDecoder } from '/vendor/three-addons/libs/meshopt_decoder.module
 import { EffectComposer } from '/vendor/three-addons/postprocessing/EffectComposer.js';
 import { RenderPass } from '/vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from '/vendor/three-addons/postprocessing/UnrealBloomPass.js';
+import { GTAOPass } from '/vendor/three-addons/postprocessing/GTAOPass.js';
 import { OutputPass } from '/vendor/three-addons/postprocessing/OutputPass.js';
 import {
   STEP, extendPath as extendPathState, makePathState,
@@ -83,7 +84,7 @@ renderer.toneMappingExposure = 1.08;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 if (!LOW_FX) {
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 }
 
 const scene = new THREE.Scene();
@@ -101,14 +102,38 @@ if (!LOW_FX) {
   composer = new EffectComposer(renderer, rt);
   composer.setPixelRatio(Math.min(devicePixelRatio, 2));
   composer.addPass(new RenderPass(scene, camera));
+  // ground-truth ambient occlusion: corners, seams and contact points
+  // darken the way night stone should (before bloom, so glows stay clean)
+  const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
+  gtao.updateGtaoMaterial({ radius: 0.7, thickness: 1.2, scale: 1.1 });
+  gtao.blendIntensity = 0.85;
+  // the stock pass keeps only points and lines out of its depth/normal
+  // pre-pass; here glows, aurora, mist and the photos themselves are
+  // transparent or unlit quads, and rendered opaque they poison the
+  // occlusion buffer (and the plates must never gather AO dirt)
+  gtao._overrideVisibility = function () {
+    const cache = this._visibilityCache;
+    this.scene.traverse((object) => {
+      const mat = object.material;
+      const skip = object.isPoints || object.isLine || object.isSprite ||
+        (mat && (mat.transparent || mat.isMeshBasicMaterial || mat.isShaderMaterial));
+      if (skip && object.visible) {
+        object.visible = false;
+        cache.push(object);
+      }
+    });
+  };
+  composer.addPass(gtao);
   composer.addPass(new UnrealBloomPass(
     new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.55, 0.85));
   composer.addPass(new OutputPass());
 }
 
 const MOON_DIR = new THREE.Vector3(-0.4, 0.8, -0.5).normalize();
-scene.add(new THREE.HemisphereLight(0x54628f, 0x2a2138, 1.45));
-const moonLight = new THREE.DirectionalLight(0x93a9e8, 1.0);
+// keep the flat ambient fill modest so form comes from the moon, the
+// lanterns and the occlusion pass rather than an even wash
+scene.add(new THREE.HemisphereLight(0x54628f, 0x2a2138, 1.1));
+const moonLight = new THREE.DirectionalLight(0x93a9e8, 1.3);
 moonLight.position.copy(MOON_DIR);
 scene.add(moonLight, moonLight.target);
 if (!LOW_FX) {
@@ -128,8 +153,16 @@ const rimLight = new THREE.DirectionalLight(0x5e6fae, 0.5);
 rimLight.position.set(0.55, 0.2, 0.6);
 scene.add(rimLight);
 
-// Warm lantern-light that travels with the walker
+// Warm lantern-light that travels with the walker — and casts real
+// shadows, so plinths, curbs and arches are grounded by their own dark
 const walkerLight = new THREE.PointLight(COL.flame, 26, 30, 2);
+if (!LOW_FX) {
+  walkerLight.castShadow = true;
+  walkerLight.shadow.mapSize.set(512, 512);
+  walkerLight.shadow.camera.near = 0.5;
+  walkerLight.shadow.camera.far = 30;
+  walkerLight.shadow.bias = -0.006;
+}
 scene.add(walkerLight);
 
 // ───────────────────────────────────────── sky, stars, moon ──
@@ -334,15 +367,32 @@ const goldMat = new THREE.MeshStandardMaterial({
 const flameMat = new THREE.MeshBasicMaterial({ color: hotColor(COL.flame, 2.2) });
 const mossMat = new THREE.MeshStandardMaterial({ color: COL.moss, roughness: 1, flatShading: true });
 
+// standing stones darken toward the ground they meet — baked into the
+// vertices, since the screen-space AO can't reach around silhouettes
+const stoneVertMat = stoneMat.clone();
+stoneVertMat.vertexColors = true;
+const stoneDarkVertMat = stoneDarkMat.clone();
+stoneDarkVertMat.vertexColors = true;
+function bakeVerticalAO(geo, yLow, yHigh, floor = 0.5) {
+  const p = geo.attributes.position;
+  const col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    const k = THREE.MathUtils.clamp((p.getY(i) - yLow) / (yHigh - yLow), 0, 1);
+    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = floor + (1 - floor) * k;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return geo;
+}
+
 const glowTex = makeGlowTexture('#ffc46b');
-const curbGeo = new THREE.BoxGeometry(0.55, 0.3, 1.15);
-const gatePillarGeo = new THREE.BoxGeometry(0.9, 3.6, 0.9);
+const curbGeo = bakeVerticalAO(new THREE.BoxGeometry(0.55, 0.3, 1.15), -0.15, 0.12, 0.5);
+const gatePillarGeo = bakeVerticalAO(new THREE.BoxGeometry(0.9, 3.6, 0.9), -1.8, -0.2, 0.55);
 const gateCapGeo = new THREE.BoxGeometry(1.2, 0.28, 1.2);
 const gateLintelGeo = new THREE.BoxGeometry(PATH_W + 2.2, 0.75, 1.0);
 const gateNameGeo = new THREE.PlaneGeometry(4.8, 0.9);
-const plinthGeo = new THREE.CylinderGeometry(0.5, 0.72, 1.15, 6);
+const plinthGeo = bakeVerticalAO(new THREE.CylinderGeometry(0.5, 0.72, 1.15, 6), -0.575, 0.4, 0.55);
 const capGeo = new THREE.CylinderGeometry(0.62, 0.5, 0.18, 6);
-const postGeo = new THREE.CylinderGeometry(0.07, 0.1, 2.7, 6);
+const postGeo = bakeVerticalAO(new THREE.CylinderGeometry(0.07, 0.1, 2.7, 6), -1.35, -0.3, 0.55);
 const cageGeo = new THREE.OctahedronGeometry(0.2);
 const flameGeo = new THREE.OctahedronGeometry(0.09);
 
@@ -661,7 +711,7 @@ function buildSegment(idx) {
   // — weathered curb stones along both edges (instanced) —
   {
     const per = Math.floor(SEG_LEN / 1.6);
-    const inst = new THREE.InstancedMesh(curbGeo, stoneDarkMat, per * 2);
+    const inst = new THREE.InstancedMesh(curbGeo, stoneDarkVertMat, per * 2);
     inst.castShadow = inst.receiveShadow = true;
     let n = 0;
     const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3();
@@ -720,7 +770,7 @@ function buildSegment(idx) {
     stand.lookAt(_pos.x, base.y, _pos.z);
     stand.rotateY((rand() - 0.5) * 0.14);
 
-    const plinth = new THREE.Mesh(plinthGeo, stoneMat);
+    const plinth = new THREE.Mesh(plinthGeo, stoneVertMat);
     plinth.position.y = 0.55;
     const cap = new THREE.Mesh(capGeo, stoneDarkMat);
     cap.position.y = 1.2;
@@ -821,7 +871,7 @@ function buildSegment(idx) {
       headX = lanternHead.x;
       headY = lanternHead.y;
     } else {
-      const post = new THREE.Mesh(postGeo, stoneDarkMat);
+      const post = new THREE.Mesh(postGeo, stoneDarkVertMat);
       post.position.y = 1.35;
       post.castShadow = true;
       const cage = new THREE.Mesh(cageGeo, goldMat);
@@ -861,7 +911,7 @@ function buildSegment(idx) {
     const basis = _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone().multiplyScalar(-1));
     const R = PATH_W / 2 + 0.7;
     for (const ss of [-1, 1]) {
-      const pillar = new THREE.Mesh(gatePillarGeo, stoneMat);
+      const pillar = new THREE.Mesh(gatePillarGeo, stoneVertMat);
       pillar.position.set(_pos.x + _side.x * R * ss, _pos.y + 1.8, _pos.z + _side.z * R * ss);
       pillar.quaternion.setFromRotationMatrix(basis);
       pillar.castShadow = pillar.receiveShadow = true;
@@ -918,7 +968,8 @@ function buildSegment(idx) {
     group.add(arch);
     seg.disposables.push(arch.geometry);
     for (const ss of [-1, 1]) {
-      const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.6, 0.8), stoneDarkMat);
+      const pillar = new THREE.Mesh(
+        bakeVerticalAO(new THREE.BoxGeometry(0.8, 1.6, 0.8), -0.8, 0.2, 0.55), stoneDarkVertMat);
       pillar.position.set(_pos.x + _side.x * R * ss, _pos.y + 0.6, _pos.z + _side.z * R * ss);
       pillar.castShadow = pillar.receiveShadow = true;
       group.add(pillar);
@@ -1160,6 +1211,15 @@ const lampPool = [];
 if (!LOW_FX) {
   for (let i = 0; i < 6; i++) {
     const l = new THREE.PointLight(COL.flame, 0, 15, 2);
+    // the two lights that visit the nearest flames burn hard enough to
+    // throw true shadows; the rest of the pool stays cheap
+    if (i < 2) {
+      l.castShadow = true;
+      l.shadow.mapSize.set(512, 512);
+      l.shadow.camera.near = 0.3;
+      l.shadow.camera.far = 15;
+      l.shadow.bias = -0.006;
+    }
     scene.add(l);
     lampPool.push(l);
   }

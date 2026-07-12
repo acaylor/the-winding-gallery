@@ -461,8 +461,55 @@ for (let v = 0; v < 4; v++) {
   g.computeVertexNormals();
   rockGeos.push(g);
 }
+// fallback tree if the real firs fail to load
 const pineGeo = new THREE.ConeGeometry(0.55, 1.6, 6);
 const trunkGeo = new THREE.CylinderGeometry(0.09, 0.12, 0.5, 5);
+
+// roots trailing beneath the islands, point-down
+const rootGeo = new THREE.ConeGeometry(0.1, 1, 5);
+rootGeo.rotateX(Math.PI);
+rootGeo.translate(0, -0.5, 0); // origin where the root meets the rock
+
+// a tuft of grass: two crossed cards, painted blades, origin at the base
+const grassTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  for (let i = 0; i < 70; i++) {
+    const x = 12 + Math.random() * 104;
+    const lean = (Math.random() - 0.5) * 46;
+    const top = 12 + Math.random() * 46;
+    const shade = 42 + Math.floor(Math.random() * 50);
+    g.strokeStyle = `rgb(${Math.floor(shade * 0.9)},${shade + 18},${Math.floor(shade * 0.55)})`;
+    g.lineWidth = 1.5 + Math.random() * 2;
+    g.beginPath();
+    g.moveTo(x, 128);
+    g.quadraticCurveTo(x + lean * 0.3, 80, x + lean, top);
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
+const grassMat = new THREE.MeshStandardMaterial({
+  map: grassTex, alphaTest: 0.3, side: THREE.DoubleSide, roughness: 1,
+});
+const grassTuftGeo = (() => {
+  const pos = [], uv = [], idx = [];
+  for (const rot of [0, Math.PI / 2]) {
+    const c = Math.cos(rot) * 0.26, s = Math.sin(rot) * 0.26;
+    const base = pos.length / 3;
+    pos.push(-c, 0, -s, c, 0, s, c, 0.34, s, -c, 0.34, -s);
+    uv.push(0, 0, 1, 0, 1, 1, 0, 1);
+    idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+})();
 
 // ───────────────────────────────────────── the deep distance ──
 // Far islands adrift on the horizon — some carrying a lantern-town
@@ -584,10 +631,74 @@ const placeholderTex = (() => {
   return t;
 })();
 
+// ───────────────────────────────────────── height fog ──
+// The night thickens below the walker: distant stretches of path and
+// low islands sink into the mist sea instead of fading evenly. Patched
+// into each world material's fog math; ?quality=low keeps plain fog.
+function wgShaderTag(mat, tag) {
+  mat.userData.wgTags = (mat.userData.wgTags || '') + '|' + tag;
+  mat.customProgramCacheKey = function () { return this.userData.wgTags; };
+}
+wgShaderTag(floorMat, 'antitile');
+function heightFogify(mat) {
+  if (LOW_FX) return;
+  const prev = mat.onBeforeCompile;
+  wgShaderTag(mat, 'heightfog');
+  mat.onBeforeCompile = (shader, renderer) => {
+    prev?.(shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <fog_pars_vertex>', '#include <fog_pars_vertex>\nvarying float wgFogY;')
+      .replace('#include <fog_vertex>', `#include <fog_vertex>
+        vec4 wgFogP = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+          wgFogP = instanceMatrix * wgFogP;
+        #endif
+        wgFogY = (modelMatrix * wgFogP).y;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <fog_pars_fragment>', '#include <fog_pars_fragment>\nvarying float wgFogY;')
+      .replace('#include <fog_fragment>', `#ifdef USE_FOG
+        float wgSink = mix(2.6, 0.5, smoothstep(-16.0, 6.0, wgFogY - cameraPosition.y));
+        float wgFogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth * wgSink);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, wgFogFactor);
+      #endif`);
+  };
+}
+for (const m of [floorMat, skirtMat, stoneMat, stoneDarkMat, stoneVertMat,
+  stoneDarkVertMat, barkMat, goldMat, mossMat, grassMat]) heightFogify(m);
+
 // ──────────────────────────────── the drifting rocks (Poly Haven CC0) ──
 // Photoscanned boulders; every island adrift around the path is an
 // instance of one. Falls back to the old jittered shards if none load.
 const rockProtos = [];       // { geometry, material, half, height } — origin on the footprint
+// moss takes the upward faces of the drifting rocks, in patches, the
+// way weather would leave it — blended in the shader by world normal
+function mossify(mat) {
+  wgShaderTag(mat, 'moss');
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 wgWNor;\nvarying vec3 wgWPos;')
+      .replace('#include <fog_vertex>', `#include <fog_vertex>
+        wgWNor = normalize(mat3(modelMatrix) * objectNormal);
+        wgWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 wgWNor;
+        varying vec3 wgWPos;
+        float wgHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float wgNoise(vec2 p) {
+          vec2 i = floor(p), f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(wgHash(i), wgHash(i + vec2(1, 0)), f.x),
+                     mix(wgHash(i + vec2(0, 1)), wgHash(i + vec2(1, 1)), f.x), f.y);
+        }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        float wgUp = smoothstep(0.4, 0.85, normalize(wgWNor).y);
+        float wgN = wgNoise(wgWPos.xz * 0.9);
+        diffuseColor.rgb = mix(diffuseColor.rgb,
+          vec3(0.16, 0.22, 0.09) * (0.7 + 0.6 * wgN),
+          wgUp * smoothstep(0.3, 0.7, wgN) * 0.85);`);
+  };
+}
 function loadIsleRocks() {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder); // the rocks are meshopt-compressed
@@ -603,9 +714,45 @@ function loadIsleRocks() {
             g.translate(
               -(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
             const half = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z) / 2;
+            mossify(o.material);
+            heightFogify(o.material);
             rockProtos.push({ geometry: g, material: o.material, half, height: bb.max.y - bb.min.y });
           }
         });
+        resolve();
+      }, undefined, () => resolve());
+    })));
+}
+
+// ──────────────────────── the island trees (Poly Haven CC0, slimmed) ──
+// Modeled trees for the islands. Leaf cards keep their alpha-cut but
+// drop shadow-casting (a card's shadow is a slab).
+const treeProtos = [];       // { model, height }
+function loadTreeProtos() {
+  const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  return Promise.all(['/assets/isle-tree-1.glb', '/assets/isle-tree-2.glb']
+    .map((url) => new Promise((resolve) => {
+      loader.load(url, (gltf) => {
+        const model = gltf.scene;
+        const bbox = new THREE.Box3().setFromObject(model);
+        model.position.set(
+          -(bbox.min.x + bbox.max.x) / 2, -bbox.min.y, -(bbox.min.z + bbox.max.z) / 2);
+        model.traverse((o) => {
+          if (!o.isMesh) return;
+          const m = o.material;
+          if (m.transparent || m.alphaTest > 0) {
+            m.transparent = false;
+            m.alphaTest = 0.4;
+            m.side = THREE.DoubleSide;
+          } else {
+            o.castShadow = true;
+          }
+          heightFogify(m);
+        });
+        const holder = new THREE.Group();
+        holder.add(model);
+        treeProtos.push({ model: holder, height: bbox.max.y - bbox.min.y });
         resolve();
       }, undefined, () => resolve());
     })));
@@ -705,6 +852,18 @@ const segments = new Map();   // index -> { group, disposables[], photoSrcs[], b
 const photoMeshes = [];       // raycast targets: [{ mesh, seg }]
 const _mossTint = new THREE.Color(0x4a6033);
 const _pos = new THREE.Vector3(), _tan = new THREE.Vector3(), _side = new THREE.Vector3();
+
+// settle a dressing piece onto an island: cast straight down and stand
+// it where the rock actually is, instead of guessing from the bounds
+const _dropRay = new THREE.Raycaster();
+const _dropOrigin = new THREE.Vector3();
+const _DOWN = new THREE.Vector3(0, -1, 0);
+function dropOnto(rock, wx, wz, fromY) {
+  _dropOrigin.set(wx, fromY, wz);
+  _dropRay.set(_dropOrigin, _DOWN);
+  const hit = _dropRay.intersectObject(rock, false)[0];
+  return hit ? hit.point.y : null;
+}
 const _m = new THREE.Matrix4();
 
 function buildSegment(idx) {
@@ -1095,7 +1254,7 @@ function buildSegment(idx) {
       const lat = (rand() < 0.5 ? -1 : 1) * (9 + rand() * 26);
       const y = _pos.y + (rand() - 0.35) * 16 - 4;
       const phase = rand() * 9;
-      let rock, topY;
+      let rock, topY, footR;
       if (rockProtos.length) {
         const proto = rockProtos[Math.floor(rand() * rockProtos.length)];
         rock = new THREE.Mesh(proto.geometry, proto.material);
@@ -1106,22 +1265,41 @@ function buildSegment(idx) {
           k * (0.8 + rand() * 0.5));
         rock.rotation.y = rand() * Math.PI * 2; // yaw only — the weathered top stays up
         topY = proto.height * rock.scale.y;
+        footR = proto.half * rock.scale.x;
       } else {
         rock = new THREE.Mesh(rockGeos[Math.floor(rand() * rockGeos.length)], stoneDarkMat);
         rock.scale.setScalar(1 + rand() * 3.2);
         rock.rotation.set(rand() * 0.6, rand() * Math.PI * 2, rand() * 0.6);
         topY = rock.scale.y * 0.55;
+        footR = rock.scale.x * 0.8;
       }
       rock.receiveShadow = true;
       rock.position.set(_pos.x + _side.x * lat, y, _pos.z + _side.z * lat);
       group.add(rock);
-      seg.bobbers.push({ obj: rock, base: y, amp: 0.35 + rand() * 0.5, phase });
+      // everything standing on (or hanging from) the island shares its
+      // bob, or the dressing would drift apart from the ground
+      const rockAmp = 0.35 + rand() * 0.5;
+      seg.bobbers.push({ obj: rock, base: y, amp: rockAmp, phase });
+      rock.updateMatrixWorld();
 
-      if (rand() < 0.5) {
+      // — a fir where the island can carry one —
+      if (footR > 1.4 && rand() < 0.65 && treeProtos.length) {
+        const tp = treeProtos[Math.floor(rand() * treeProtos.length)];
+        const tree = tp.model.clone(true);
+        tree.scale.setScalar((1.5 + rand() * 2.3) / tp.height);
+        tree.rotation.y = rand() * Math.PI * 2;
+        const ox = (rand() - 0.5) * footR * 0.5, oz = (rand() - 0.5) * footR * 0.5;
+        const ty = dropOnto(rock, rock.position.x + ox, rock.position.z + oz, rock.position.y + topY + 5);
+        if (ty !== null) {
+          tree.position.set(rock.position.x + ox, ty - 0.06, rock.position.z + oz);
+          group.add(tree);
+          seg.bobbers.push({ obj: tree, base: tree.position.y, amp: rockAmp, phase });
+        }
+      } else if (rand() < 0.5 && !treeProtos.length) {
+        // the old cone pine, kept only as a fallback
         const tree = new THREE.Group();
         const trunk = new THREE.Mesh(trunkGeo, barkMat);
         const cone = new THREE.Mesh(pineGeo, mossMat);
-        trunk.castShadow = cone.castShadow = true;
         cone.position.y = 1.2;
         trunk.position.y = 0.2;
         tree.add(trunk, cone);
@@ -1129,7 +1307,38 @@ function buildSegment(idx) {
         tree.position.copy(rock.position);
         tree.position.y += topY * 0.82;
         group.add(tree);
-        seg.bobbers.push({ obj: tree, base: tree.position.y, amp: 0.35, phase });
+        seg.bobbers.push({ obj: tree, base: tree.position.y, amp: rockAmp, phase });
+      }
+
+      // — grass tufts and fallen stones on the weathered top —
+      const tufts = footR > 0.9 ? 2 + Math.floor(rand() * 4) : 0;
+      for (let ti = 0; ti < tufts; ti++) {
+        const ox = (rand() - 0.5) * footR * 1.1, oz = (rand() - 0.5) * footR * 1.1;
+        const ty = dropOnto(rock, rock.position.x + ox, rock.position.z + oz, rock.position.y + topY + 5);
+        if (ty === null) continue;
+        const isStone = rand() < 0.3;
+        const bit = isStone
+          ? new THREE.Mesh(rockGeos[Math.floor(rand() * rockGeos.length)], stoneDarkMat)
+          : new THREE.Mesh(grassTuftGeo, grassMat);
+        bit.scale.setScalar(isStone ? 0.07 + rand() * 0.1 : 0.7 + rand() * 1.1);
+        bit.rotation.y = rand() * Math.PI * 2;
+        bit.position.set(rock.position.x + ox, ty - 0.03, rock.position.z + oz);
+        group.add(bit);
+        seg.bobbers.push({ obj: bit, base: bit.position.y, amp: rockAmp, phase });
+      }
+
+      // — roots trailing into the sky beneath —
+      const roots = footR > 1.1 ? 1 + Math.floor(rand() * 3) : 0;
+      for (let ri = 0; ri < roots; ri++) {
+        const root = new THREE.Mesh(rootGeo, stoneDarkMat);
+        root.scale.set(0.5 + rand() * 0.8, 0.6 + rand() * 1.6, 0.5 + rand() * 0.8);
+        root.rotation.set((rand() - 0.5) * 0.35, 0, (rand() - 0.5) * 0.35);
+        root.position.set(
+          rock.position.x + (rand() - 0.5) * footR * 0.6,
+          rock.position.y + 0.18,
+          rock.position.z + (rand() - 0.5) * footR * 0.6);
+        group.add(root);
+        seg.bobbers.push({ obj: root, base: root.position.y, amp: rockAmp, phase });
       }
     }
   }
@@ -1407,6 +1616,34 @@ if (!LOW_FX) {
   mist.renderOrder = -1;
   scene.add(mist);
   skyGroup.userData.mistMat = mistMat;
+}
+
+// stray wisps of the mist sea, lapping at the causeway's flanks
+const mistWisps = [];
+if (!LOW_FX) {
+  const wispTex = makeGlowTexture('#aeb8d8');
+  for (let i = 0; i < 5; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: wispTex, color: 0x9fb0d8, transparent: true, opacity: 0.05,
+      depthWrite: false,
+    }));
+    // wide and squat, held off the deck's flanks — a wisp that wanders
+    // over the walkway reads as a glowing orb, not weather
+    sp.scale.set(16 + i * 3, 3.6, 1);
+    scene.add(sp);
+    mistWisps.push({ sp, off: 18 + i * 31, lat: (i % 2 ? -1 : 1) * (5.5 + i * 1.6), ph: i * 2.1 });
+  }
+}
+function updateMistWisps(t) {
+  for (const w of mistWisps) {
+    const s = player.s + w.off + Math.sin(t * 0.05 + w.ph) * 6;
+    pathFrame(s, _pos, _tan, _side);
+    const drift = w.lat + Math.sin(t * 0.11 + w.ph * 3) * 2;
+    w.sp.position.set(
+      _pos.x + _side.x * drift,
+      _pos.y - 0.6 + Math.sin(t * 0.13 + w.ph) * 0.5,
+      _pos.z + _side.z * drift);
+  }
 }
 
 // ───────────────────────────────────────── the Keeper's Tour ──
@@ -1807,7 +2044,7 @@ function computeWalkPose(dt) {
 // ───────────────────────────────────────── boot ──
 async function boot() {
   try {
-    const [res] = await Promise.all([fetch('/api/photos'), loadLantern(), loadIsleRocks()]);
+    const [res] = await Promise.all([fetch('/api/photos'), loadLantern(), loadIsleRocks(), loadTreeProtos()]);
     buildHorizonIsles();
     const data = await res.json();
     photos = data.photos;
@@ -1936,6 +2173,7 @@ function animate() {
     moonLight.target.position.copy(walkPos);
   }
   updateLamps(t);
+  updateMistWisps(t);
   if (mist) {
     mist.position.set(camera.position.x, camera.position.y - 24, camera.position.z);
     mist.material.uniforms.uTime.value = t;

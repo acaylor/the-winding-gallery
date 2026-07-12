@@ -347,6 +347,26 @@ const floorMat = new THREE.MeshStandardMaterial({
   roughnessMap: pavingRough, roughness: 1,
   vertexColors: true,
 });
+// break the paving's repeat: blend in a second, offset sample of the
+// same stone wherever a low-frequency noise mask says so, and the grid
+// never resolves — the walk goes on for kilometres over one texture
+floorMat.onBeforeCompile = (shader) => {
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', `#include <common>
+      float wgHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float wgNoise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(wgHash(i), wgHash(i + vec2(1, 0)), f.x),
+                   mix(wgHash(i + vec2(0, 1)), wgHash(i + vec2(1, 1)), f.x), f.y);
+      }`)
+    .replace('#include <map_fragment>', `
+      vec4 texA = texture2D(map, vMapUv);
+      vec4 texB = texture2D(map, vMapUv * 0.831 + vec2(0.353, 0.679));
+      float wgMask = smoothstep(0.35, 0.65, wgNoise(vMapUv * 0.5));
+      diffuseColor *= mix(texA, texB, wgMask);
+    `);
+};
 const stoneMat = new THREE.MeshStandardMaterial({
   map: rockColor, normalMap: rockNormal, aoMap: rockAO,
   color: 0xbdc2d6, roughness: 1,
@@ -361,8 +381,28 @@ const skirtMat = new THREE.MeshStandardMaterial({
 const barkMat = new THREE.MeshStandardMaterial({
   map: barkColor, normalMap: barkNormal, roughness: 1,
 });
+// real gilding: full metal under varied roughness, so lantern-light
+// slides across the molding in streaks instead of one even sheen
+const goldRoughTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  g.fillStyle = '#575757';
+  g.fillRect(0, 0, 128, 128);
+  g.globalAlpha = 0.35;
+  for (let i = 0; i < 240; i++) {
+    const v = 60 + Math.floor(Math.random() * 95);
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    const w = 3 + Math.random() * 24;
+    g.fillRect(Math.random() * 128, Math.random() * 128, w, w * (0.25 + Math.random()));
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+})();
 const goldMat = new THREE.MeshStandardMaterial({
-  color: COL.goldDeep, metalness: 0.85, roughness: 0.32, emissive: 0x2c1f06,
+  color: 0xd8ab3c, metalness: 1.0, roughness: 0.9,
+  roughnessMap: goldRoughTex, emissive: 0x2c1f06, envMapIntensity: 1.25,
 });
 const flameMat = new THREE.MeshBasicMaterial({ color: hotColor(COL.flame, 2.2) });
 const mossMat = new THREE.MeshStandardMaterial({ color: COL.moss, roughness: 1, flatShading: true });
@@ -384,14 +424,25 @@ function bakeVerticalAO(geo, yLow, yHigh, floor = 0.5) {
   return geo;
 }
 
+// stone textures are roughly a metre of surface — stretch a whole one
+// over a 7 m lintel or a 3.6 m pillar and it reads as plastic, so the
+// UVs are scaled to keep the grain near world size
+function scaleUV(geo, sx, sy) {
+  const a = geo.attributes.uv;
+  for (let i = 0; i < a.count; i++) a.setXY(i, a.getX(i) * sx, a.getY(i) * sy);
+  return geo;
+}
+
 const glowTex = makeGlowTexture('#ffc46b');
 const curbGeo = bakeVerticalAO(new THREE.BoxGeometry(0.55, 0.3, 1.15), -0.15, 0.12, 0.5);
-const gatePillarGeo = bakeVerticalAO(new THREE.BoxGeometry(0.9, 3.6, 0.9), -1.8, -0.2, 0.55);
+const gatePillarGeo = scaleUV(bakeVerticalAO(new THREE.BoxGeometry(0.9, 3.6, 0.9), -1.8, -0.2, 0.55), 1, 2.6);
 const gateCapGeo = new THREE.BoxGeometry(1.2, 0.28, 1.2);
-const gateLintelGeo = new THREE.BoxGeometry(PATH_W + 2.2, 0.75, 1.0);
+const gateLintelGeo = scaleUV(new THREE.BoxGeometry(PATH_W + 2.2, 0.75, 1.0), 4.5, 0.7);
 const gateNameGeo = new THREE.PlaneGeometry(4.8, 0.9);
-const plinthGeo = bakeVerticalAO(new THREE.CylinderGeometry(0.5, 0.72, 1.15, 6), -0.575, 0.4, 0.55);
+const plinthGeo = scaleUV(bakeVerticalAO(new THREE.CylinderGeometry(0.5, 0.72, 1.15, 6), -0.575, 0.4, 0.55), 2.4, 1);
 const capGeo = new THREE.CylinderGeometry(0.62, 0.5, 0.18, 6);
+const plinthBaseGeo = scaleUV(bakeVerticalAO(new THREE.CylinderGeometry(0.82, 0.96, 0.22, 6), -0.11, 0.11, 0.6), 3.2, 0.25);
+const plinthNeckGeo = new THREE.CylinderGeometry(0.6, 0.54, 0.1, 6);
 const postGeo = bakeVerticalAO(new THREE.CylinderGeometry(0.07, 0.1, 2.7, 6), -1.35, -0.3, 0.55);
 const cageGeo = new THREE.OctahedronGeometry(0.2);
 const flameGeo = new THREE.OctahedronGeometry(0.09);
@@ -652,6 +703,7 @@ async function loadOne({ src, entry, resolve, reject }) {
 // ───────────────────────────────────────── segments ──
 const segments = new Map();   // index -> { group, disposables[], photoSrcs[], bobbers[] }
 const photoMeshes = [];       // raycast targets: [{ mesh, seg }]
+const _mossTint = new THREE.Color(0x4a6033);
 const _pos = new THREE.Vector3(), _tan = new THREE.Vector3(), _side = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 
@@ -672,13 +724,21 @@ function buildSegment(idx) {
       pathFrame(s, _pos, _tan, _side);
       for (let k = 0; k <= 3; k++) {
         const lat = -PATH_W / 2 + (PATH_W * k) / 3;
+        // a gentle crown so the deck sheds moonlight like a real road
+        const crown = 0.05 * (1 - (lat / (PATH_W / 2)) ** 2);
         posArr.push(
           _pos.x + _side.x * lat,
-          _pos.y + (rand() - 0.5) * 0.05,
+          _pos.y + crown + (rand() - 0.5) * 0.05,
           _pos.z + _side.z * lat
         );
-        // moonlit tint with mild mottling; the paving texture does the rest
-        c.setHex(0xb8bdd4).multiplyScalar(0.86 + rand() * 0.28);
+        // moonlit tint: per-stone mottle over slow drifts of tone, plus
+        // moss creeping in from the edges in patches — the low
+        // frequencies are what kill the tiled look from a distance
+        const drift = 1 + 0.11 * Math.sin(s * 0.13) + 0.09 * Math.sin(s * 0.047 + lat * 0.9);
+        c.setHex(0xb8bdd4).multiplyScalar((0.86 + rand() * 0.28) * drift);
+        const mossK = Math.max(0, Math.sin(s * 0.09 + idx * 2.1)) *
+          (Math.abs(lat) / (PATH_W / 2)) ** 2 * 0.35;
+        c.lerp(_mossTint, mossK);
         colArr.push(c.r, c.g, c.b);
         uvArr.push(lat / TILE, s / TILE);
       }
@@ -699,13 +759,43 @@ function buildSegment(idx) {
     group.add(m);
     seg.disposables.push(g);
 
-    // underside skirt so the path has visible thickness from below
-    const g2 = g.clone();
-    const p = g2.attributes.position;
-    for (let i = 0; i < p.count; i++) p.setY(i, p.getY(i) - 0.9);
-    const m2 = new THREE.Mesh(g2, skirtMat);
-    group.add(m2);
-    seg.disposables.push(g2);
+    // the causeway's stone hull: ragged sides and a keel beneath the
+    // deck, so the path reads as a floating bridge and not a ribbon
+    const HULL = [
+      [-PATH_W / 2 - 0.24, 0.12],
+      [-PATH_W / 2 - 0.34, 0.55],
+      [-PATH_W / 2 + 0.95, 1.3],
+      [0, 1.75],
+      [PATH_W / 2 - 0.95, 1.3],
+      [PATH_W / 2 + 0.34, 0.55],
+      [PATH_W / 2 + 0.24, 0.12],
+    ];
+    const hp = [], huv = [], hidx = [];
+    for (let r = 0; r < rows; r++) {
+      const s = s0 + r * 2;
+      pathFrame(s, _pos, _tan, _side);
+      for (let k = 0; k < HULL.length; k++) {
+        const lat = HULL[k][0] * (1 + 0.05 * (rand() - 0.5));
+        const drop = HULL[k][1] * (1 + 0.24 * (rand() - 0.5)) + 0.02;
+        hp.push(_pos.x + _side.x * lat, _pos.y - drop, _pos.z + _side.z * lat);
+        huv.push(s / 3.2, (k / (HULL.length - 1)) * 2.4);
+      }
+    }
+    const HL = HULL.length;
+    for (let r = 0; r < rows - 1; r++)
+      for (let k = 0; k < HL - 1; k++) {
+        const a = r * HL + k;
+        hidx.push(a, a + HL, a + 1, a + 1, a + HL, a + HL + 1);
+      }
+    const hg = new THREE.BufferGeometry();
+    hg.setAttribute('position', new THREE.Float32BufferAttribute(hp, 3));
+    hg.setAttribute('uv', new THREE.Float32BufferAttribute(huv, 2));
+    hg.setIndex(hidx);
+    hg.computeVertexNormals();
+    const hull = new THREE.Mesh(hg, skirtMat);
+    hull.receiveShadow = true;
+    group.add(hull);
+    seg.disposables.push(hg);
   }
 
   // — weathered curb stones along both edges (instanced) —
@@ -714,18 +804,25 @@ function buildSegment(idx) {
     const inst = new THREE.InstancedMesh(curbGeo, stoneDarkVertMat, per * 2);
     inst.castShadow = inst.receiveShadow = true;
     let n = 0;
-    const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), sc = new THREE.Vector3();
+    const q = new THREE.Quaternion(), qt = new THREE.Quaternion(), sc = new THREE.Vector3();
+    const eul = new THREE.Euler(), tint = new THREE.Color();
     for (let sideSign = -1; sideSign <= 1; sideSign += 2) {
       for (let j = 0; j < per; j++) {
         if (rand() < 0.18) continue; // gaps — the gallery is old
         const s = s0 + j * 1.6 + rand();
         pathFrame(s, _pos, _tan, _side);
-        const lat = sideSign * (PATH_W / 2 + 0.15);
-        _p0.set(_pos.x + _side.x * lat, _pos.y + 0.1, _pos.z + _side.z * lat);
+        const lat = sideSign * (PATH_W / 2 + 0.08 + rand() * 0.16);
+        // sunk into the deck, not floated above it
+        _p0.set(_pos.x + _side.x * lat, _pos.y + 0.04 + rand() * 0.07, _pos.z + _side.z * lat);
         q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), _tan);
-        sc.setScalar(0.7 + rand() * 0.5);
+        // settled, not placed: every stone leans a little differently
+        eul.set((rand() - 0.5) * 0.14, (rand() - 0.5) * 0.22, (rand() - 0.5) * 0.16);
+        q.multiply(qt.setFromEuler(eul));
+        sc.set(0.75 + rand() * 0.5, 0.75 + rand() * 0.55, 0.7 + rand() * 0.6);
         _m.compose(_p0, q, sc);
-        inst.setMatrixAt(n++, _m);
+        inst.setMatrixAt(n, _m);
+        inst.setColorAt(n, tint.setScalar(0.8 + rand() * 0.55));
+        n++;
       }
     }
     inst.count = n;
@@ -774,9 +871,16 @@ function buildSegment(idx) {
     plinth.position.y = 0.55;
     const cap = new THREE.Mesh(capGeo, stoneDarkMat);
     cap.position.y = 1.2;
+    // carved footing and a neck under the cap, so the pedestal is
+    // built masonry rather than one extruded lump
+    const footing = new THREE.Mesh(plinthBaseGeo, stoneVertMat);
+    footing.position.y = 0.09;
+    const neck = new THREE.Mesh(plinthNeckGeo, stoneDarkMat);
+    neck.position.y = 1.08;
     plinth.castShadow = plinth.receiveShadow = true;
     cap.castShadow = cap.receiveShadow = true;
-    stand.add(plinth, cap);
+    footing.castShadow = footing.receiveShadow = true;
+    stand.add(plinth, cap, footing, neck);
 
     // frame + photo plane (rescaled to true aspect once loaded)
     const frameGroup = new THREE.Group();
@@ -789,7 +893,7 @@ function buildSegment(idx) {
     frameGroup.add(photoMesh);
     seg.disposables.push(photoMesh.geometry, photoMat);
 
-    const border = new THREE.Mesh(boxFrameGeometry(1, 1, 0.14, 0.09), goldMat);
+    const border = new THREE.Mesh(moldedFrameGeometry(1, 1), goldMat);
     border.position.z = -0.02;
     border.castShadow = true;
     frameGroup.add(border);
@@ -815,7 +919,7 @@ function buildSegment(idx) {
       const W = w * k, H = h * k;
       photoMesh.scale.set(W, H, 1);
       const g = border.geometry;
-      border.geometry = boxFrameGeometry(W, H, 0.14, 0.09);
+      border.geometry = moldedFrameGeometry(W, H);
       seg.disposables.push(border.geometry);
       g.dispose();
       glow.scale.set(W + 1.6, H + 1.6, 1);
@@ -958,7 +1062,10 @@ function buildSegment(idx) {
     const s = s0 + 1.6;
     pathFrame(s, _pos, _tan, _side);
     const R = PATH_W / 2 + 1.3;
-    const arch = new THREE.Mesh(new THREE.TorusGeometry(R, 0.34, 6, 22, Math.PI), stoneMat);
+    // weathered stone bow — grain repeating along the arc at world
+    // scale, not one rock texture stretched over the whole span
+    const archGeo = scaleUV(new THREE.TorusGeometry(R, 0.34, 6, 22, Math.PI), 6, 1.4);
+    const arch = new THREE.Mesh(archGeo, stoneDarkMat);
     // right-handed basis (side × up = -tan) — see the waygate note above;
     // the torus is symmetric, so the old mirrored basis merely got lucky
     _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone().multiplyScalar(-1));
@@ -1031,41 +1138,48 @@ function buildSegment(idx) {
   segments.set(idx, seg);
 }
 
-function boxFrameGeometry(w, h, thick, depth) {
-  // four bars forming a picture frame, merged into one geometry
-  const parts = [
-    [w + thick * 2, thick, 0, h / 2 + thick / 2],
-    [w + thick * 2, thick, 0, -h / 2 - thick / 2],
-    [thick, h, -w / 2 - thick / 2, 0],
-    [thick, h, w / 2 + thick / 2, 0],
+// picture-frame molding swept around the plate: a stepped ogee profile
+// (u outward from the photo's edge, z proud of it), mitred at the
+// corners by construction since every ring is a concentric rectangle
+const FRAME_PROFILE = [
+  [0.000, -0.030],  // closed back against the plate
+  [0.132, -0.020],  // outer edge
+  [0.128, 0.058],   // outer bead
+  [0.108, 0.096],
+  [0.086, 0.080],   // trough of the ogee
+  [0.056, 0.088],   // crown
+  [0.030, 0.052],   // step down
+  [0.012, 0.062],   // inner bead
+  [-0.014, 0.034],  // lip overhanging the photo's edge, as a rabbet does
+];
+function moldedFrameGeometry(w, h) {
+  const P = FRAME_PROFILE;
+  const pos = [], uv = [], idx = [];
+  const sides = [
+    (u) => [-(w / 2 + u), h / 2 + u, w / 2 + u, h / 2 + u],       // top
+    (u) => [w / 2 + u, h / 2 + u, w / 2 + u, -(h / 2 + u)],       // right
+    (u) => [w / 2 + u, -(h / 2 + u), -(w / 2 + u), -(h / 2 + u)], // bottom
+    (u) => [-(w / 2 + u), -(h / 2 + u), -(w / 2 + u), h / 2 + u], // left
   ];
-  const geos = parts.map(([bw, bh, x, y]) => {
-    const g = new THREE.BoxGeometry(bw, bh, depth);
-    g.translate(x, y, 0);
-    return g;
-  });
-  const merged = mergeGeometries(geos);
-  geos.forEach((g) => g.dispose());
-  return merged;
-}
-// minimal merge (all geometries share the same attribute layout)
-function mergeGeometries(geos) {
-  const pos = [], norm = [], uv = [], index = [];
-  let offset = 0;
-  for (const g of geos) {
-    pos.push(...g.attributes.position.array);
-    norm.push(...g.attributes.normal.array);
-    uv.push(...g.attributes.uv.array);
-    const idx = g.index.array;
-    for (let i = 0; i < idx.length; i++) index.push(idx[i] + offset);
-    offset += g.attributes.position.count;
+  for (const side of sides) {
+    const base = pos.length / 3;
+    for (let k = 0; k < P.length; k++) {
+      const [xa, ya, xb, yb] = side(P[k][0]);
+      pos.push(xa, ya, P[k][1], xb, yb, P[k][1]);
+      const v = k / (P.length - 1);
+      uv.push(0, v, 2, v);
+    }
+    for (let k = 0; k < P.length - 1; k++) {
+      const a = base + k * 2;
+      idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
   }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
-  out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  out.setIndex(index);
-  return out;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
 }
 
 // carved wing names for the waygates — one material per wing, kept for

@@ -88,7 +88,9 @@ if (!LOW_FX) {
 }
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(COL.fog, 0.0105);
+// default quality runs a touch denser — the height-fog curve thins it
+// again above the walker, so only the middle distance gains breath
+scene.fog = new THREE.FogExp2(COL.fog, LOW_FX ? 0.0105 : 0.0125);
 
 const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 2500);
 
@@ -657,7 +659,8 @@ function heightFogify(mat) {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <fog_pars_fragment>', '#include <fog_pars_fragment>\nvarying float wgFogY;')
       .replace('#include <fog_fragment>', `#ifdef USE_FOG
-        float wgSink = mix(2.6, 0.5, smoothstep(-16.0, 6.0, wgFogY - cameraPosition.y));
+        // ~1.0 at the walker's own height, swelling below, thinning above
+        float wgSink = mix(2.4, 0.45, smoothstep(-16.0, 8.0, wgFogY - cameraPosition.y));
         float wgFogFactor = 1.0 - exp(-fogDensity * fogDensity * vFogDepth * vFogDepth * wgSink);
         gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, wgFogFactor);
       #endif`);
@@ -745,6 +748,12 @@ function loadTreeProtos() {
             m.transparent = false;
             m.alphaTest = 0.4;
             m.side = THREE.DoubleSide;
+            // moonlit leaves: lift and green the canopy (the scan's
+            // daylight leaf texture goes near-black under night light,
+            // and a black canopy reads as a dead tree)
+            m.color.setRGB(1.45, 1.75, 1.15);
+            m.emissive.setHex(0x1e2f14);
+            m.emissiveIntensity = 0.65;
           } else {
             o.castShadow = true;
           }
@@ -1286,7 +1295,8 @@ function buildSegment(idx) {
       if (footR > 1.4 && rand() < 0.65 && treeProtos.length) {
         const tp = treeProtos[Math.floor(rand() * treeProtos.length)];
         const tree = tp.model.clone(true);
-        tree.scale.setScalar((1.5 + rand() * 2.3) / tp.height);
+        // never tiny: a canopy a few pixels tall reads as dead sticks
+        tree.scale.setScalar((2.4 + rand() * 2.2) / tp.height);
         tree.rotation.y = rand() * Math.PI * 2;
         const ox = (rand() - 0.5) * footR * 0.5, oz = (rand() - 0.5) * footR * 0.5;
         const ty = dropOnto(rock, rock.position.x + ox, rock.position.z + oz, rock.position.y + topY + 5);

@@ -10,8 +10,44 @@ whatever stands in **Unreleased**.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-14
+
 ### Added
 
+- **The grounded night** — light that behaves like light:
+  - A GTAO ambient-occlusion pass: corners, seams and contact points
+    darken the way night stone should (the pass keeps sprites, glows and
+    the photographs themselves out of its depth buffer, so no plate ever
+    gathers AO dirt).
+  - The walker's travelling lantern-light and the two nearest flames now
+    cast true point-light shadows; contact dark is baked into the feet
+    of every standing stone.
+  - Ambient rebalanced away from the flat hemisphere wash — form now
+    comes from the moon and the flames (`PCFSoft` filtering).
+- **Stonework** — the built world gains mass and craft:
+  - The causeway is a stone hull with ragged flanks and a keel, so
+    distant bends read as a floating bridge instead of a paper ribbon;
+    the deck crowns gently to shed moonlight.
+  - Anti-tiling paving: a second offset sample of the stone blended in
+    by low-frequency noise, with slow tone drifts and moss creeping in
+    from the edges — the texture grid never resolves.
+  - Curbs settle instead of hovering: sunk into the deck, leaning at
+    individual angles, each stone its own proportions and tint.
+  - Museum-grade frames: a stepped-ogee molding swept around each plate,
+    mitred at the corners, rabbet lip over the photo's edge, gilded in
+    full metal under a streaked roughness so lantern-light slides.
+  - Plinths gain carved footings and necks; pillars, lintels and arches
+    keep their stone grain at world scale.
+- **The living world** — the islands stop being props:
+  - Windswept mountain pines in the Huangshan manner, grown procedurally
+    from each segment's seed — a leaning wind-trained trunk and flat
+    cloud-pruned needle tiers; no two alike, and no asset shipped.
+  - Islands grow moss on their upward faces, carry grass tufts and
+    fallen stones settled by raycast onto the actual rock, and trail
+    roots into the sky beneath.
+  - Height fog: the night thickens below the walker, so distant path and
+    low islands sink into the mist sea; stray wisps of it lap at the
+    causeway's flanks.
 - **The luminous night** — a visual-fidelity pass over the whole realm:
   - Real bloom (post-processing): lantern flames, the moon, the keeper's
     wisp and the fireflies now genuinely glow.
@@ -28,7 +64,8 @@ whatever stands in **Unreleased**.
     (ambientCG, CC0), and a cool rim-fill so off-path silhouettes keep
     their shape.
   - `?quality=low` keeps the previous lightweight pipeline (no bloom,
-    shadows or mist) for modest machines.
+    shadows, occlusion, height fog or mist) for modest machines — the
+    pines and island dressing appear at every quality.
 - **Real floating islands** — the drifting rocks are now photoscanned
   boulders (Poly Haven, CC0; simplified and meshopt-compressed to
   60–112 KB each) instead of procedurally jittered shards. The far
@@ -124,7 +161,8 @@ whatever stands in **Unreleased**.
   versions, npm publishing via OIDC trusted publishing, and the official
   site on GitHub Pages.
 
-[Unreleased]: https://github.com/acaylor/the-winding-gallery/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/acaylor/the-winding-gallery/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/acaylor/the-winding-gallery/compare/a125076...v0.2.0
 [0.1.0]: https://github.com/acaylor/the-winding-gallery/commits/a125076

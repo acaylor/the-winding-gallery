@@ -19,5 +19,8 @@ the lantern to 512 px WebP textures (9.6 MB → 271 KB), the photoscanned
 rocks simplified and compressed to 256 px WebP (≈ 2–6 MB → 60–112 KB
 each, meshopt-encoded).
 
+The mountain pines on the islands are generated procedurally at
+runtime (no asset), textured with the Bark012 surface above.
+
 The sample photographs in `photos/` are generated procedurally by
 `scripts/make-sample-photos.js` and are also CC0.

@@ -12,16 +12,15 @@ but gratefully given:
 | `public/assets/isle-rock-1.glb` | [Rock 07](https://polyhaven.com/a/rock_07) — [Poly Haven](https://polyhaven.com) | CC0 1.0 |
 | `public/assets/isle-rock-2.glb` | [Moon Rock 04](https://polyhaven.com/a/moon_rock_04) — [Poly Haven](https://polyhaven.com) | CC0 1.0 |
 | `public/assets/isle-rock-3.glb` | [Moon Rock 01](https://polyhaven.com/a/moon_rock_01) — [Poly Haven](https://polyhaven.com) | CC0 1.0 |
-| `public/assets/isle-tree-1.glb` | [Island Tree 01](https://polyhaven.com/a/island_tree_01) — [Poly Haven](https://polyhaven.com) | CC0 1.0 |
-| `public/assets/isle-tree-2.glb` | [Island Tree 02](https://polyhaven.com/a/island_tree_02) — [Poly Haven](https://polyhaven.com) | CC0 1.0 |
 
 Textures were downscaled (512–1024 px) and recompressed for the web; the
 models were optimized with [glTF-Transform](https://gltf-transform.dev) —
 the lantern to 512 px WebP textures (9.6 MB → 271 KB), the photoscanned
 rocks simplified and compressed to 256 px WebP (≈ 2–6 MB → 60–112 KB
-each, meshopt-encoded), and the island trees simplified to ≈ 750 KB
-each (256 px WebP, meshopt-encoded) — the strongest simplification
-that still keeps their leaf canopies intact.
+each, meshopt-encoded).
+
+The mountain pines on the islands are generated procedurally at
+runtime (no asset), textured with the Bark012 surface above.
 
 The sample photographs in `photos/` are generated procedurally by
 `scripts/make-sample-photos.js` and are also CC0.

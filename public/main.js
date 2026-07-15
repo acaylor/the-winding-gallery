@@ -407,7 +407,6 @@ const goldMat = new THREE.MeshStandardMaterial({
   roughnessMap: goldRoughTex, emissive: 0x2c1f06, envMapIntensity: 1.25,
 });
 const flameMat = new THREE.MeshBasicMaterial({ color: hotColor(COL.flame, 2.2) });
-const mossMat = new THREE.MeshStandardMaterial({ color: COL.moss, roughness: 1, flatShading: true });
 
 // standing stones darken toward the ground they meet — baked into the
 // vertices, since the screen-space AO can't reach around silhouettes
@@ -463,10 +462,6 @@ for (let v = 0; v < 4; v++) {
   g.computeVertexNormals();
   rockGeos.push(g);
 }
-// fallback tree if the real firs fail to load
-const pineGeo = new THREE.ConeGeometry(0.55, 1.6, 6);
-const trunkGeo = new THREE.CylinderGeometry(0.09, 0.12, 0.5, 5);
-
 // roots trailing beneath the islands, point-down
 const rootGeo = new THREE.ConeGeometry(0.1, 1, 5);
 rootGeo.rotateX(Math.PI);
@@ -667,7 +662,7 @@ function heightFogify(mat) {
   };
 }
 for (const m of [floorMat, skirtMat, stoneMat, stoneDarkMat, stoneVertMat,
-  stoneDarkVertMat, barkMat, goldMat, mossMat, grassMat]) heightFogify(m);
+  stoneDarkVertMat, barkMat, goldMat, grassMat]) heightFogify(m);
 
 // ──────────────────────────────── the drifting rocks (Poly Haven CC0) ──
 // Photoscanned boulders; every island adrift around the path is an
@@ -727,44 +722,116 @@ function loadIsleRocks() {
     })));
 }
 
-// ──────────────────────── the island trees (Poly Haven CC0, slimmed) ──
-// Modeled trees for the islands. Leaf cards keep their alpha-cut but
-// drop shadow-casting (a card's shadow is a slab).
-const treeProtos = [];       // { model, height }
-function loadTreeProtos() {
-  const loader = new GLTFLoader();
-  loader.setMeshoptDecoder(MeshoptDecoder);
-  return Promise.all(['/assets/isle-tree-1.glb', '/assets/isle-tree-2.glb']
-    .map((url) => new Promise((resolve) => {
-      loader.load(url, (gltf) => {
-        const model = gltf.scene;
-        const bbox = new THREE.Box3().setFromObject(model);
-        model.position.set(
-          -(bbox.min.x + bbox.max.x) / 2, -bbox.min.y, -(bbox.min.z + bbox.max.z) / 2);
-        model.traverse((o) => {
-          if (!o.isMesh) return;
-          const m = o.material;
-          if (m.transparent || m.alphaTest > 0) {
-            m.transparent = false;
-            m.alphaTest = 0.4;
-            m.side = THREE.DoubleSide;
-            // moonlit leaves: lift and green the canopy (the scan's
-            // daylight leaf texture goes near-black under night light,
-            // and a black canopy reads as a dead tree)
-            m.color.setRGB(1.45, 1.75, 1.15);
-            m.emissive.setHex(0x1e2f14);
-            m.emissiveIntensity = 0.65;
-          } else {
-            o.castShadow = true;
-          }
-          heightFogify(m);
-        });
-        const holder = new THREE.Group();
-        holder.add(model);
-        treeProtos.push({ model: holder, height: bbox.max.y - bbox.min.y });
-        resolve();
-      }, undefined, () => resolve());
-    })));
+// ─────────────────── the mountain pines (procedural, Huangshan style) ──
+// Windswept pines of the eastern high ranges: a leaning S-curved trunk
+// grown toward the wind, and flat cloud-pruned needle pads. Each is
+// grown from its segment's seed — no two alike, no asset to ship. The
+// geometry is per-tree, so it goes into the segment's disposables.
+const padMat = new THREE.MeshStandardMaterial({
+  color: 0x35482c, roughness: 1, vertexColors: true,
+  emissive: 0x141f0b, emissiveIntensity: 0.35,
+});
+heightFogify(padMat);
+
+// a TubeGeometry that narrows toward its tip, like wood does
+function taperedTube(curve, segs, radius, tipK) {
+  const geo = new THREE.TubeGeometry(curve, segs, radius, 6, false);
+  const p = geo.attributes.position;
+  const per = 7; // radialSegments + 1
+  const c = new THREE.Vector3(), v = new THREE.Vector3();
+  for (let ri = 0; ri <= segs; ri++) {
+    const t = ri / segs;
+    curve.getPoint(t, c);
+    const k = 1 - (1 - tipK) * t;
+    for (let j = 0; j < per; j++) {
+      const i = ri * per + j;
+      v.set(p.getX(i), p.getY(i), p.getZ(i)).sub(c).multiplyScalar(k).add(c);
+      p.setXYZ(i, v.x, v.y, v.z);
+    }
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function makeMountainPine(rand, disposables) {
+  const g = new THREE.Group();
+  const leanA = rand() * Math.PI * 2;
+  const lean = 0.2 + rand() * 0.38;    // crown drift, as a share of height
+  const lx = Math.cos(leanA), lz = Math.sin(leanA);
+
+  // the trunk: kinked toward the lean like wind-trained wood
+  const pts = [];
+  const kinkA = 1.2 + rand() * 0.8, kinkP = rand() * Math.PI;
+  for (let i = 0; i <= 4; i++) {
+    const t = i / 4;
+    const drift = lean * t * t + Math.sin(t * Math.PI * kinkA + kinkP) * 0.07;
+    pts.push(new THREE.Vector3(
+      lx * drift + (rand() - 0.5) * 0.04,
+      t * (0.92 + rand() * 0.12),
+      lz * drift + (rand() - 0.5) * 0.04));
+  }
+  const trunkCurve = new THREE.CatmullRomCurve3(pts);
+  const trunkGeo = taperedTube(trunkCurve, 10, 0.045 + rand() * 0.02, 0.3);
+  disposables.push(trunkGeo);
+  const trunk = new THREE.Mesh(trunkGeo, barkMat);
+  trunk.castShadow = true;
+  g.add(trunk);
+
+  // a cloud-pruned tier of needles: a cluster of lumpy squashed
+  // spheres, darker underneath (baked), so the edge breaks like dense
+  // foliage instead of curving like a lily pad
+  const addLump = (at, r) => {
+    const geo = new THREE.SphereGeometry(1, 9, 5);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const k = 1 + (rand() - 0.5) * 0.55;
+      p.setXYZ(i, p.getX(i) * k, p.getY(i) * k, p.getZ(i) * k);
+    }
+    geo.scale(r, r * 0.3, r * (0.75 + rand() * 0.4));
+    geo.computeVertexNormals();
+    bakeVerticalAO(geo, -r * 0.3, r * 0.22, 0.35);
+    disposables.push(geo);
+    const m = new THREE.Mesh(geo, padMat);
+    m.position.copy(at);
+    m.rotation.y = rand() * Math.PI * 2;
+    m.castShadow = true;
+    g.add(m);
+  };
+  const addPad = (at, r) => {
+    addLump(new THREE.Vector3(at.x, at.y + r * 0.1, at.z), r);
+    const lumps = 1 + Math.floor(rand() * 2);
+    for (let li = 0; li < lumps; li++) {
+      const a = rand() * Math.PI * 2, d = r * (0.5 + rand() * 0.45);
+      addLump(new THREE.Vector3(
+        at.x + Math.cos(a) * d,
+        at.y + r * (0.02 + rand() * 0.1),
+        at.z + Math.sin(a) * d), r * (0.45 + rand() * 0.3));
+    }
+  };
+
+  // crown pad at the trunk's tip, then a pad at each branch tip
+  const tip = trunkCurve.getPoint(1);
+  addPad(tip, 0.3 + rand() * 0.14);
+  // always at least two lower tiers — a lone crown on a bare trunk
+  // reads as broccoli, not a wind-trained pine
+  const branches = 2 + Math.floor(rand() * 2);
+  const at = new THREE.Vector3();
+  for (let b = 0; b < branches; b++) {
+    trunkCurve.getPoint(0.45 + rand() * 0.4, at);
+    const az = leanA + (rand() - 0.5) * 2.8;  // mostly leeward
+    const len = 0.2 + rand() * 0.28;
+    const bTip = new THREE.Vector3(
+      at.x + Math.cos(az) * len,
+      at.y + len * (0.02 + rand() * 0.3),
+      at.z + Math.sin(az) * len);
+    const mid = at.clone().lerp(bTip, 0.55);
+    mid.y -= len * 0.1;  // droop, then rise to the pad
+    const bGeo = taperedTube(new THREE.CatmullRomCurve3([at.clone(), mid, bTip]), 5, 0.018, 0.4);
+    disposables.push(bGeo);
+    g.add(new THREE.Mesh(bGeo, barkMat));
+    addPad(bTip, 0.15 + rand() * 0.15);
+  }
+  return g;
 }
 
 // ───────────────────────────────────────── the lantern (Khronos CC0 model) ──
@@ -1291,13 +1358,11 @@ function buildSegment(idx) {
       seg.bobbers.push({ obj: rock, base: y, amp: rockAmp, phase });
       rock.updateMatrixWorld();
 
-      // — a fir where the island can carry one —
-      if (footR > 1.4 && rand() < 0.65 && treeProtos.length) {
-        const tp = treeProtos[Math.floor(rand() * treeProtos.length)];
-        const tree = tp.model.clone(true);
-        // never tiny: a canopy a few pixels tall reads as dead sticks
-        tree.scale.setScalar((2.4 + rand() * 2.2) / tp.height);
-        tree.rotation.y = rand() * Math.PI * 2;
+      // — a windswept mountain pine where the island can carry one —
+      if (footR > 1.4 && rand() < 0.7) {
+        const tree = makeMountainPine(rand, seg.disposables);
+        // never tiny: a crown a few pixels tall reads as dead sticks
+        tree.scale.setScalar(2.4 + rand() * 2.2);
         const ox = (rand() - 0.5) * footR * 0.5, oz = (rand() - 0.5) * footR * 0.5;
         const ty = dropOnto(rock, rock.position.x + ox, rock.position.z + oz, rock.position.y + topY + 5);
         if (ty !== null) {
@@ -1305,19 +1370,6 @@ function buildSegment(idx) {
           group.add(tree);
           seg.bobbers.push({ obj: tree, base: tree.position.y, amp: rockAmp, phase });
         }
-      } else if (rand() < 0.5 && !treeProtos.length) {
-        // the old cone pine, kept only as a fallback
-        const tree = new THREE.Group();
-        const trunk = new THREE.Mesh(trunkGeo, barkMat);
-        const cone = new THREE.Mesh(pineGeo, mossMat);
-        cone.position.y = 1.2;
-        trunk.position.y = 0.2;
-        tree.add(trunk, cone);
-        tree.scale.setScalar(0.8 + rand() * 1.4);
-        tree.position.copy(rock.position);
-        tree.position.y += topY * 0.82;
-        group.add(tree);
-        seg.bobbers.push({ obj: tree, base: tree.position.y, amp: rockAmp, phase });
       }
 
       // — grass tufts and fallen stones on the weathered top —
@@ -2054,7 +2106,7 @@ function computeWalkPose(dt) {
 // ───────────────────────────────────────── boot ──
 async function boot() {
   try {
-    const [res] = await Promise.all([fetch('/api/photos'), loadLantern(), loadIsleRocks(), loadTreeProtos()]);
+    const [res] = await Promise.all([fetch('/api/photos'), loadLantern(), loadIsleRocks()]);
     buildHorizonIsles();
     const data = await res.json();
     photos = data.photos;

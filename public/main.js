@@ -26,7 +26,10 @@ const TEX_MAX = 2048;
 
 const COL = {
   night: 0x0b0e1c,
-  fog: 0x11142a,
+  // a dim, cool slate that leans toward the mist/horizon rather than the
+  // old near-black indigo, so distant path fades into the sea as one
+  // ribbon instead of leaving dark stone stranded against the pale mist
+  fog: 0x1b2140,
   stone: 0x474b5e,
   stoneDark: 0x33374a,
   gold: 0xe0b64a,
@@ -132,10 +135,12 @@ if (!LOW_FX) {
 }
 
 const MOON_DIR = new THREE.Vector3(-0.4, 0.8, -0.5).normalize();
-// keep the flat ambient fill modest so form comes from the moon, the
-// lanterns and the occlusion pass rather than an even wash
-scene.add(new THREE.HemisphereLight(0x54628f, 0x2a2138, 1.1));
-const moonLight = new THREE.DirectionalLight(0x93a9e8, 1.3);
+// the ambient floor is lifted enough that unlit stone reads as cool
+// moon-blue rather than black — dark, but its texture legible. The
+// lantern pools (point lights, intensity 9–26) still dominate by a wide
+// margin, so the night is kept.
+scene.add(new THREE.HemisphereLight(0x5d6c9c, 0x373049, 1.5));
+const moonLight = new THREE.DirectionalLight(0x9fb2ec, 1.55);
 moonLight.position.copy(MOON_DIR);
 scene.add(moonLight, moonLight.target);
 if (!LOW_FX) {
@@ -149,10 +154,12 @@ if (!LOW_FX) {
   moonLight.shadow.normalBias = 0.35;
 }
 
-// a cool fill from the moonless side, so the off-path silhouettes keep
-// their shape instead of collapsing to black
-const rimLight = new THREE.DirectionalLight(0x5e6fae, 0.5);
-rimLight.position.set(0.55, 0.2, 0.6);
+// a cool fill from the moonless side, raised so off-path silhouettes keep
+// their shape and gain a legible moon-blue edge against the sky instead
+// of collapsing to black. Lifted a touch overhead so it catches the top
+// arris of curbs, arches and posts.
+const rimLight = new THREE.DirectionalLight(0x6f83c8, 1.0);
+rimLight.position.set(0.55, 0.45, 0.6);
 scene.add(rimLight);
 
 // Warm lantern-light that travels with the walker — and casts real
@@ -160,7 +167,7 @@ scene.add(rimLight);
 const walkerLight = new THREE.PointLight(COL.flame, 26, 30, 2);
 if (!LOW_FX) {
   walkerLight.castShadow = true;
-  walkerLight.shadow.mapSize.set(512, 512);
+  walkerLight.shadow.mapSize.set(1024, 1024);
   walkerLight.shadow.camera.near = 0.5;
   walkerLight.shadow.camera.far = 30;
   walkerLight.shadow.bias = -0.006;
@@ -1667,7 +1674,7 @@ if (!LOW_FX) {
     // throw true shadows; the rest of the pool stays cheap
     if (i < 2) {
       l.castShadow = true;
-      l.shadow.mapSize.set(512, 512);
+      l.shadow.mapSize.set(1024, 1024);
       l.shadow.camera.near = 0.3;
       l.shadow.camera.far = 15;
       l.shadow.bias = -0.006;

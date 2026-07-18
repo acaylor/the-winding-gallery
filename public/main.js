@@ -882,11 +882,15 @@ const padMat = new THREE.MeshStandardMaterial({
 });
 heightFogify(padMat);
 
-// needle-pad texture: clustered fans of fine radiating slivers, deep green
-// to dusty sage with warm tips, darker toward each cluster base, clean alpha
-const needleTex = (() => {
+// needle-pad texture: a full sheet of overlapping needle fans so a card
+// reads as dense foliage rather than a few scattered whiskers. Deep green
+// to dusty sage with warm tips, darker toward each cluster base, clean
+// alpha. Painted at 512 with the Math.random shared-sheet exemption.
+const NEEDLE_TEX_SIZE = 512;
+const needleCanvas = (() => {
+  const S = NEEDLE_TEX_SIZE;
   const c = document.createElement('canvas');
-  c.width = c.height = 256;
+  c.width = c.height = S;
   const g = c.getContext('2d');
   const R = () => Math.random();
   const needle = (x0, y0, ang, len, w, base, tip) => {
@@ -899,29 +903,80 @@ const needleTex = (() => {
     g.moveTo(x0 - nx, y0 - ny); g.lineTo(x0 + nx, y0 + ny); g.lineTo(tx, ty);
     g.closePath(); g.fill();
   };
-  // clustered fans spread across the sheet, drawn dark-base first
-  for (let cl = 0; cl < 15; cl++) {
-    const cx = 18 + R() * 220, cy = 18 + R() * 220;
-    const dir = R() * Math.PI * 2, spread = 0.7 + R() * 1.4;
+  // a cluster: a fan of many fine needles radiating from one point
+  const cluster = (cx, cy, scale) => {
+    const dir = R() * Math.PI * 2, spread = 0.7 + R() * 1.5;
     const hue = R();                                  // 0 deep green … 1 dusty sage
-    const gr = 44 + Math.floor(hue * 34);
-    const base = `rgb(${Math.floor(gr * 0.44)},${Math.floor(gr * 0.86)},${Math.floor(gr * 0.4)})`;
-    const warm = R() < 0.4;                           // some fans warm at the tip
+    const gr = 42 + Math.floor(hue * 36);
+    const base = `rgb(${Math.floor(gr * 0.4)},${Math.floor(gr * 0.82)},${Math.floor(gr * 0.38)})`;
+    const warm = R() < 0.42;                          // some fans warm at the tip
     const tip = warm
-      ? `rgb(${Math.floor(gr * 1.5)},${Math.floor(gr * 1.35)},${Math.floor(gr * 0.7)})`
-      : `rgb(${Math.floor(gr * 0.9)},${Math.floor(gr * 1.4)},${Math.floor(gr * 0.72)})`;
-    const n = 22 + Math.floor(R() * 20);
+      ? `rgb(${Math.floor(gr * 1.55)},${Math.floor(gr * 1.35)},${Math.floor(gr * 0.72)})`
+      : `rgb(${Math.floor(gr * 0.85)},${Math.floor(gr * 1.42)},${Math.floor(gr * 0.72)})`;
+    const n = 26 + Math.floor(R() * 22);
     for (let i = 0; i < n; i++) {
       const a = dir + (R() - 0.5) * spread;
-      needle(cx, cy, a, 26 + R() * 46, 1.1 + R() * 1.1, base, tip);
+      needle(cx, cy, a, (44 + R() * 60) * scale, (1.5 + R() * 1.6) * scale, base, tip);
     }
-  }
-  const t = new THREE.CanvasTexture(c);
+  };
+  // a darker deep layer first (longer, fills the gaps between top fans),
+  // then a brighter shorter layer on top, so the sheet gains depth. A grid
+  // with jitter guarantees full coverage instead of random bald patches.
+  const grid = (cols, s) => {
+    for (let iy = 0; iy < cols; iy++) for (let ix = 0; ix < cols; ix++) {
+      const cx = (ix + 0.5) / cols * S + (R() - 0.5) * (S / cols) * 1.1;
+      const cy = (iy + 0.5) / cols * S + (R() - 0.5) * (S / cols) * 1.1;
+      cluster(cx, cy, s);
+    }
+  };
+  grid(4, 1.35);   // deep, long underlayer
+  grid(6, 0.95);   // dense mid sheet
+  grid(7, 0.7);    // bright short tips on top
+  return c;
+})();
+const needleTex = (() => {
+  const t = new THREE.CanvasTexture(needleCanvas);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 })();
+// a cheap normal map derived from the needle sheet's own relief: brighter
+// tips sit higher, so moonlight catches the fans instead of lighting them
+// flat. Sobel over the luminance of the painted canvas → tangent normals.
+const needleNormalTex = (() => {
+  const S = NEEDLE_TEX_SIZE;
+  const g = needleCanvas.getContext('2d');
+  const src = g.getImageData(0, 0, S, S).data;
+  const h = new Float32Array(S * S);
+  for (let i = 0; i < S * S; i++) {
+    const a = src[i * 4 + 3];
+    h[i] = a > 12
+      ? (src[i * 4] * 0.3 + src[i * 4 + 1] * 0.59 + src[i * 4 + 2] * 0.11) / 255
+      : 0;
+  }
+  const nc = document.createElement('canvas');
+  nc.width = nc.height = S;
+  const ng = nc.getContext('2d');
+  const out = ng.createImageData(S, S);
+  const K = 2.4;                                      // relief strength
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+    const xl = (x + S - 1) % S, xr = (x + 1) % S;
+    const yu = (y + S - 1) % S, yd = (y + 1) % S;
+    const dx = (h[y * S + xl] - h[y * S + xr]) * K;
+    const dy = (h[yu * S + x] - h[yd * S + x]) * K;
+    const il = 1 / Math.hypot(dx, dy, 1);
+    const o = (y * S + x) * 4;
+    out.data[o] = (dx * il * 0.5 + 0.5) * 255;
+    out.data[o + 1] = (dy * il * 0.5 + 0.5) * 255;
+    out.data[o + 2] = il * 255;
+    out.data[o + 3] = 255;
+  }
+  ng.putImageData(out, 0, 0);
+  return new THREE.CanvasTexture(nc);
+})();
 const needleMat = new THREE.MeshStandardMaterial({
-  map: needleTex, alphaTest: 0.42, transparent: true, depthWrite: true,
+  map: needleTex, normalMap: needleNormalTex,
+  normalScale: new THREE.Vector2(0.55, 0.55),
+  alphaTest: 0.42, transparent: true, depthWrite: true,
   side: THREE.DoubleSide, roughness: 1, vertexColors: true,
   emissive: 0x0d150a, emissiveIntensity: 0.3,
 });
@@ -930,7 +985,7 @@ heightFogify(needleMat);
 // one cupped fan card: a horizontal quad drooping at its edges, vertex-darkened
 // toward the rim so the fan feels dense at its heart and shaded beneath
 const needleCardGeo = (() => {
-  const N = 5, pos = [], uv = [], col = [], idx = [];
+  const N = 4, pos = [], uv = [], col = [], idx = [];
   for (let iy = 0; iy <= N; iy++) for (let ix = 0; ix <= N; ix++) {
     const u = ix / N, v = iy / N;
     const x = (u - 0.5) * 2, z = (v - 0.5) * 2;
@@ -974,6 +1029,48 @@ function taperedTube(curve, segs, radius, tipK) {
   return geo;
 }
 
+// a tiny geometry accumulator: bakes each source geometry through a matrix
+// (and a per-part vertex tint) into one shared set of arrays, so a whole
+// tree's cards — or all its silhouette lumps — collapse into a single
+// draw call instead of dozens of little meshes
+function makeMerger() {
+  const pos = [], nor = [], uv = [], col = [], idx = [];
+  let base = 0;
+  const v = new THREE.Vector3(), n = new THREE.Vector3(), nm = new THREE.Matrix3();
+  return {
+    add(geo, mat, tr, tg, tb) {
+      const gp = geo.attributes.position, gn = geo.attributes.normal;
+      const gu = geo.attributes.uv, gc = geo.attributes.color;
+      nm.getNormalMatrix(mat);
+      for (let i = 0; i < gp.count; i++) {
+        v.set(gp.getX(i), gp.getY(i), gp.getZ(i)).applyMatrix4(mat);
+        pos.push(v.x, v.y, v.z);
+        if (gn) {
+          n.set(gn.getX(i), gn.getY(i), gn.getZ(i)).applyMatrix3(nm).normalize();
+          nor.push(n.x, n.y, n.z);
+        } else nor.push(0, 1, 0);
+        uv.push(gu ? gu.getX(i) : 0, gu ? gu.getY(i) : 0);
+        const cr = gc ? gc.getX(i) : 1, cg = gc ? gc.getY(i) : 1, cb = gc ? gc.getZ(i) : 1;
+        col.push(cr * tr, cg * tg, cb * tb);
+      }
+      const gi = geo.index;
+      if (gi) for (let i = 0; i < gi.count; i++) idx.push(base + gi.getX(i));
+      else for (let i = 0; i < gp.count; i++) idx.push(base + i);
+      base += gp.count;
+    },
+    build() {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      geo.setIndex(idx);
+      return geo;
+    },
+    get count() { return base; },
+  };
+}
+
 function makeMountainPine(rand, disposables) {
   const g = new THREE.Group();
   const leanA = rand() * Math.PI * 2;
@@ -998,67 +1095,95 @@ function makeMountainPine(rand, disposables) {
   trunk.castShadow = true;
   g.add(trunk);
 
-  // a cloud-pruned tier of needles: a cluster of lumpy squashed
-  // spheres, darker underneath (baked), so the edge breaks like dense
-  // foliage instead of curving like a lily pad
+  // per-tree colour and size character: a subtle hue lean (cooler blue-green
+  // ↔ warmer sage) and an overall brightness, so no two crowns match. Applied
+  // as a vertex tint on every card and lump this tree bakes.
+  const warmth = (rand() - 0.5);                       // −0.5 cool … +0.5 warm
+  const bri = 0.86 + rand() * 0.3;
+  const tintR = bri * (1 + warmth * 0.16);
+  const tintG = bri * (1 - Math.abs(warmth) * 0.05);
+  const tintB = bri * (1 - warmth * 0.16);
+
+  // every card and lump on this tree bakes into one geometry each, so the
+  // whole crown is two draw calls no matter how many fans fill it
+  const cardM = makeMerger();
+  const lumpM = makeMerger();
+  const _m4 = new THREE.Matrix4(), _rot = new THREE.Matrix4();
+  const _lscale = new THREE.Vector3();
+
+  // a cloud-pruned tier of needles: lumpy squashed spheres, darkened and
+  // tucked so they only carry distant mass behind the cards — never read as
+  // a smooth silhouette of their own. Baked into the shared lump geometry.
   const addLump = (at, r) => {
-    const geo = new THREE.SphereGeometry(1, 9, 5);
+    const geo = new THREE.SphereGeometry(1, 8, 5);
     const p = geo.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const k = 1 + (rand() - 0.5) * 0.55;
       p.setXYZ(i, p.getX(i) * k, p.getY(i) * k, p.getZ(i) * k);
     }
-    geo.scale(r, r * 0.3, r * (0.75 + rand() * 0.4));
+    geo.scale(r, r * 0.26, r * (0.7 + rand() * 0.4));
     geo.computeVertexNormals();
-    bakeVerticalAO(geo, -r * 0.3, r * 0.22, 0.35);
-    disposables.push(geo);
-    const m = new THREE.Mesh(geo, padMat);
-    m.position.copy(at);
-    m.rotation.y = rand() * Math.PI * 2;
-    m.castShadow = true;
-    g.add(m);
+    bakeVerticalAO(geo, -r * 0.26, r * 0.2, 0.3);
+    _rot.makeRotationY(rand() * Math.PI * 2);
+    _rot.setPosition(at.x, at.y, at.z);
+    // dark tucked mass: 0.6 keeps the cores well under the lit needle sheets
+    lumpM.add(geo, _rot, tintR * 0.6, tintG * 0.6, tintB * 0.6);
+    geo.dispose();
   };
-  // a cupped needle card, jittered in yaw/tilt/scale, shared geometry
-  const addCard = (cx, cy, cz, s, yaw, tiltAxis, tilt) => {
-    const m = new THREE.Mesh(needleCardGeo, needleMat);
-    m.position.set(cx, cy, cz);
-    m.rotation.y = yaw;
-    if (tilt) m.rotateOnAxis(tiltAxis, tilt);
-    m.scale.set(s, s, s);
-    g.add(m);
-  };
+  // one cupped needle card baked through its transform, with a small
+  // per-card brightness wobble on top of the tree tint
   const yAxis = new THREE.Vector3(1, 0, 0);
+  const addCard = (cx, cy, cz, s, yaw, tiltAxis, tilt) => {
+    _m4.makeRotationY(yaw);
+    if (tilt) { _rot.makeRotationAxis(tiltAxis, tilt); _m4.multiply(_rot); }
+    _m4.scale(_lscale.set(s, s, s));
+    _m4.setPosition(cx, cy, cz);
+    const cv = 0.88 + rand() * 0.24;
+    cardM.add(needleCardGeo, _m4, tintR * cv, tintG * cv, tintB * cv);
+  };
+  const zAxis = new THREE.Vector3(0, 0, 1);
   const addPad = (at, r) => {
-    // dimmed lump cores carry silhouette and mass from every angle
-    addLump(new THREE.Vector3(at.x, at.y + r * 0.1, at.z), r);
+    // dimmed lump cores carry mass behind the cards, tucked a touch low
+    addLump(new THREE.Vector3(at.x, at.y + r * 0.04, at.z), r * 0.82);
     const lumps = 1 + Math.floor(rand() * 2);
     for (let li = 0; li < lumps; li++) {
-      const a = rand() * Math.PI * 2, d = r * (0.5 + rand() * 0.45);
+      const a = rand() * Math.PI * 2, d = r * (0.45 + rand() * 0.4);
       addLump(new THREE.Vector3(
         at.x + Math.cos(a) * d,
-        at.y + r * (0.02 + rand() * 0.1),
-        at.z + Math.sin(a) * d), r * (0.45 + rand() * 0.3));
+        at.y - r * (0.02 + rand() * 0.06),
+        at.z + Math.sin(a) * d), r * (0.4 + rand() * 0.28));
     }
-    // needle cards over the core: a couple of flat canopy fans on top,
-    // a ring of tilted skirt fans to fill the silhouette edge-on
-    const canopy = 2 + Math.floor(rand() * 2);
+    // needle cards over the core: several flat canopy fans on top …
+    const canopy = 4 + Math.floor(rand() * 3);
     for (let i = 0; i < canopy; i++) {
       addCard(
-        at.x + (rand() - 0.5) * r * 0.5,
-        at.y + r * (0.16 + rand() * 0.12),
-        at.z + (rand() - 0.5) * r * 0.5,
-        r * (0.85 + rand() * 0.5), rand() * Math.PI * 2,
+        at.x + (rand() - 0.5) * r * 0.7,
+        at.y + r * (0.12 + rand() * 0.16),
+        at.z + (rand() - 0.5) * r * 0.7,
+        r * (0.8 + rand() * 0.55), rand() * Math.PI * 2,
         yAxis, (rand() - 0.5) * 0.5);
     }
-    const skirt = 2 + Math.floor(rand() * 2);
+    // … a fuller ring of tilted skirt fans to fill the silhouette edge-on …
+    const skirt = 4 + Math.floor(rand() * 3);
     for (let i = 0; i < skirt; i++) {
-      const a = (i / skirt + rand() * 0.2) * Math.PI * 2;
+      const a = (i / skirt + rand() * 0.22) * Math.PI * 2;
       addCard(
-        at.x + Math.cos(a) * r * 0.55,
-        at.y + r * (0.02 + rand() * 0.08),
-        at.z + Math.sin(a) * r * 0.55,
-        r * (0.6 + rand() * 0.35), a,
+        at.x + Math.cos(a) * r * 0.58,
+        at.y + r * (0.0 + rand() * 0.1),
+        at.z + Math.sin(a) * r * 0.58,
+        r * (0.6 + rand() * 0.4), a,
         yAxis, 0.9 + rand() * 0.5);
+    }
+    // … and crossed near-vertical fans through the heart, so the canopy
+    // keeps body when viewed edge-on instead of collapsing to a line
+    const uprights = 2 + Math.floor(rand() * 2);
+    for (let i = 0; i < uprights; i++) {
+      const yaw = rand() * Math.PI * 2;
+      const s = r * (0.7 + rand() * 0.4);
+      const cy = at.y + r * (0.04 + rand() * 0.14);
+      // a crossed pair, tilted just off vertical so both faces catch light
+      addCard(at.x, cy, at.z, s, yaw, yAxis, 1.35 + rand() * 0.3);
+      addCard(at.x, cy, at.z, s, yaw, zAxis, 1.35 + rand() * 0.3);
     }
   };
 
@@ -1083,6 +1208,21 @@ function makeMountainPine(rand, disposables) {
     disposables.push(bGeo);
     g.add(new THREE.Mesh(bGeo, barkMat));
     addPad(bTip, 0.15 + rand() * 0.15);
+  }
+
+  // collapse the crown into two meshes: the dark lump mass (opaque, casts
+  // the shadow silhouette) and the needle sheets (alpha-tested, no shadow)
+  if (lumpM.count) {
+    const lg = lumpM.build();
+    disposables.push(lg);
+    const lm = new THREE.Mesh(lg, padMat);
+    lm.castShadow = true;
+    g.add(lm);
+  }
+  if (cardM.count) {
+    const cg = cardM.build();
+    disposables.push(cg);
+    g.add(new THREE.Mesh(cg, needleMat));
   }
   return g;
 }

@@ -193,6 +193,11 @@ const skyMat = new THREE.ShaderMaterial({
       return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x),
                  mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
     }
+    float fbm(vec2 p) {
+      float v = 0.0, a = 0.5;
+      for (int k = 0; k < 3; k++) { v += a * noise(p); p *= 2.07; a *= 0.5; }
+      return v;
+    }
     void main() {
       vec3 dir = normalize(vDir);
       float h = dir.y;
@@ -203,12 +208,25 @@ const skyMat = new THREE.ShaderMaterial({
       col = mix(horizon, col, smoothstep(-0.06, 0.14, h));
       // faint warm haze low on the horizon, like far-off lantern towns
       col += vec3(0.10, 0.06, 0.02) * exp(-abs(h + 0.02) * 14.0);
-      // the great river of stars, a soft clouded band across the night
-      float band = abs(dot(dir, normalize(vec3(0.62, 0.34, -0.42))));
-      float mw = exp(-band * band * 22.0);
-      float cloud = noise(vec2(atan(dir.z, dir.x) * 5.0, dir.y * 7.0));
-      cloud = 0.35 + 0.65 * cloud * cloud;
-      col += vec3(0.055, 0.06, 0.095) * mw * cloud * smoothstep(0.0, 0.25, h);
+      // the great river of stars: an elongated, tilted band whose light is
+      // broken up by FBM so it clumps and thins like real galactic dust —
+      // warmer in its dense core, cooler along its ragged edges
+      vec3 mwAxis = normalize(vec3(0.62, 0.34, -0.42));
+      float band = abs(dot(dir, mwAxis));
+      float mw = exp(-band * band * 20.0) * smoothstep(0.0, 0.22, h);
+      vec3 along = normalize(cross(mwAxis, vec3(0.0, 1.0, 0.0)));
+      float u = dot(dir, along) * 3.0;
+      float clump = fbm(vec2(u * 1.5, band * 8.0));
+      clump *= clump;
+      float dust = smoothstep(0.15, 0.7, fbm(vec2(u * 2.3 + 5.0, band * 5.0)));
+      float mwI = mw * (0.12 + 0.88 * clump) * (0.45 + 0.55 * dust);
+      col += mix(vec3(0.048, 0.062, 0.11), vec3(0.10, 0.086, 0.10), clump) * mwI * 1.35;
+      // one or two barely-there nebula patches, one warm and one cool
+      float neb = fbm(dir.xz * 2.0 + 11.0) * fbm(dir.xy * 1.6 - 3.0);
+      neb = smoothstep(0.42, 0.82, neb) * smoothstep(0.02, 0.32, h);
+      col += vec3(0.085, 0.028, 0.06) * neb * 0.5;
+      float neb2 = smoothstep(0.55, 0.9, fbm(dir.xz * 1.5 - 21.0)) * smoothstep(0.06, 0.42, h);
+      col += vec3(0.018, 0.05, 0.08) * neb2 * 0.45;
       // dither, or the long gradients ribbon into visible bands
       col += (hash(gl_FragCoord.xy) - 0.5) / 160.0;
       gl_FragColor = vec4(col, 1.0);
@@ -216,42 +234,63 @@ const skyMat = new THREE.ShaderMaterial({
 });
 skyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1600, 32, 20), skyMat));
 
-// stars
+// stars — varied in size, brightness and colour temperature, only some
+// of them breathing (a sky where every point pulses in unison reads fake)
 {
   const N = 1600;
   const pos = new Float32Array(N * 3);
   const phase = new Float32Array(N);
   const size = new Float32Array(N);
+  const bright = new Float32Array(N);
+  const twk = new Float32Array(N);
+  const col = new Float32Array(N * 3);
+  const c = new THREE.Color();
   for (let i = 0; i < N; i++) {
     const v = new THREE.Vector3().randomDirection();
     v.y = Math.abs(v.y) * 0.96 + 0.03;
     v.normalize().multiplyScalar(1500);
     pos.set([v.x, v.y, v.z], i * 3);
     phase[i] = Math.random() * Math.PI * 2;
-    size[i] = 1.5 + Math.random() * 3.2;
+    // a power law: mostly faint pinpricks, a rare few large and brilliant
+    size[i] = 1.3 + Math.pow(Math.random(), 3.4) * 6.2;
+    bright[i] = 0.38 + Math.pow(Math.random(), 1.7) * 0.95;
+    // a minority carry a temperature: warm amber giants, cool blue stars
+    const tk = Math.random();
+    if (tk < 0.11) c.setHex(0xffd3a0);
+    else if (tk < 0.22) c.setHex(0xb9ccff);
+    else c.setRGB(0.85, 0.88, 1.0);
+    col.set([c.r, c.g, c.b], i * 3);
+    // roughly half twinkle, and gently; the rest hang steady
+    twk[i] = Math.random() < 0.5 ? 0.18 + Math.random() * 0.4 : 0.0;
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   g.setAttribute('aPhase', new THREE.BufferAttribute(phase, 1));
   g.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+  g.setAttribute('aBright', new THREE.BufferAttribute(bright, 1));
+  g.setAttribute('aTwk', new THREE.BufferAttribute(twk, 1));
+  g.setAttribute('aColor', new THREE.BufferAttribute(col, 3));
   const starMat = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, fog: false,
     uniforms: { uTime: { value: 0 } },
     vertexShader: `
       attribute float aPhase; attribute float aSize;
-      varying float vTw;
+      attribute float aBright; attribute float aTwk; attribute vec3 aColor;
+      varying float vA; varying vec3 vColor;
       uniform float uTime;
       void main() {
-        vTw = 0.55 + 0.45 * sin(uTime * 0.8 + aPhase);
+        float tw = 1.0 - aTwk + aTwk * (0.5 + 0.5 * sin(uTime * 0.8 + aPhase));
+        vA = aBright * tw;
+        vColor = aColor;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         gl_PointSize = aSize;
       }`,
     fragmentShader: `
-      varying float vTw;
+      varying float vA; varying vec3 vColor;
       void main() {
         float d = length(gl_PointCoord - 0.5);
-        float a = smoothstep(0.5, 0.1, d) * vTw;
-        gl_FragColor = vec4(0.85, 0.88, 1.0, a);
+        float a = smoothstep(0.5, 0.1, d) * vA;
+        gl_FragColor = vec4(vColor, a);
       }`,
   });
   skyGroup.add(new THREE.Points(g, starMat));
@@ -512,8 +551,36 @@ const grassTuftGeo = (() => {
 // Far islands adrift on the horizon — some carrying a lantern-town
 // spark — so the vista has landmarks instead of empty fog. Built once
 // the rock model has loaded (boot), so they share its silhouette.
+// far shapes must not read as black cardboard cut into the sky: blend
+// each isle toward the horizon haze near its base (where it meets the
+// mist sea) and let only its crown keep a faint silhouette, so the deep
+// distance reads as receding atmospheric layers, not a hard border
+const horizonIsleMat = new THREE.ShaderMaterial({
+  fog: false,
+  uniforms: {
+    uHaze: { value: new THREE.Color(0x171628) },
+    uSil:  { value: new THREE.Color(0x24243e) },
+  },
+  vertexShader: `
+    varying vec3 vWorld;
+    void main() {
+      vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: `
+    varying vec3 vWorld;
+    uniform vec3 uHaze;
+    uniform vec3 uSil;
+    void main() {
+      // skyGroup rides with the camera, so height above the eye is the
+      // reliable cue: bases sink into the haze, crowns lift out of it
+      float rel = vWorld.y - cameraPosition.y;
+      float k = smoothstep(-30.0, 46.0, rel);
+      gl_FragColor = vec4(mix(uHaze, uSil, k), 1.0);
+    }`,
+});
 function buildHorizonIsles() {
-  const isleMat = new THREE.MeshBasicMaterial({ color: 0x10122a, fog: false });
+  const isleMat = horizonIsleMat;
   const isleRand = seededRand(4099);
   for (let i = 0; i < 10; i++) {
     const a = isleRand() * Math.PI * 2;
@@ -1630,14 +1697,24 @@ function updateLamps(t) {
 }
 
 // ───────────────────────────────────────── the mist sea ──
-// A slow sea of moonlit cloud far beneath the causeway. The noise is
-// anchored in world space, so the sea stays put while the plane that
-// carries it follows the walker.
-let mist = null;
-if (!LOW_FX) {
-  const mistMat = new THREE.ShaderMaterial({
+// A slow, breathing cloud sea far beneath the causeway. Domain-warped
+// FBM gives it real billows and troughs; two scroll velocities layer
+// large slow forms under smaller faster detail; billows that rise toward
+// the moon catch a cool highlight while troughs sink toward the fog. The
+// noise is anchored in world space, so the sea stays put while the plane
+// that carries it follows the walker. Two planes at different heights and
+// speeds give the parallax of weather with depth.
+// horizontal bearing of the moon, for the highlight on moon-facing slopes
+const _mh = new THREE.Vector2(MOON_DIR.x, MOON_DIR.z).normalize();
+const mistLayers = [];
+function makeMistMat({ scale, speed, opacity, seed }) {
+  return new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, fog: false,
-    uniforms: { uTime: { value: 0 } },
+    uniforms: {
+      uTime: { value: 0 }, uSpeed: { value: speed }, uScale: { value: scale },
+      uOpacity: { value: opacity }, uSeed: { value: seed },
+      uMoon: { value: _mh.clone() },
+    },
     vertexShader: `
       varying vec3 vWorld;
       varying vec2 vUv;
@@ -1650,7 +1727,8 @@ if (!LOW_FX) {
     fragmentShader: `
       varying vec3 vWorld;
       varying vec2 vUv;
-      uniform float uTime;
+      uniform float uTime, uSpeed, uScale, uOpacity, uSeed;
+      uniform vec2 uMoon;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
         vec2 i = floor(p), f = fract(p);
@@ -1660,24 +1738,55 @@ if (!LOW_FX) {
       }
       float fbm(vec2 p) {
         float v = 0.0, a = 0.5;
-        for (int k = 0; k < 4; k++) { v += a * noise(p); p *= 2.13; a *= 0.5; }
+        for (int k = 0; k < 3; k++) { v += a * noise(p); p *= 2.11; a *= 0.5; }
         return v;
       }
       void main() {
-        vec2 p = vWorld.xz * 0.014;
-        float m = fbm(p + vec2(uTime * 0.014, uTime * 0.008));
-        m = smoothstep(0.32, 0.9, m + 0.18 * fbm(p * 3.1 - uTime * 0.01));
-        // the plane's rim must never show
-        float rim = smoothstep(0.5, 0.26, distance(vUv, vec2(0.5)));
-        vec3 col = mix(vec3(0.030, 0.038, 0.085), vec3(0.155, 0.17, 0.27), m);
-        gl_FragColor = vec4(col, m * rim * 0.45);
+        float T = uTime * uSpeed;
+        vec2 p = vWorld.xz * uScale;
+        // domain warp: large slow forms fold the field into billows
+        vec2 warp = vec2(fbm(p * 0.5 + T * 0.9),
+                         fbm(p * 0.5 + 5.2 - T * 0.7)) - 0.5;
+        vec2 pw = p + warp * 1.5 + vec2(T, T * 0.6);
+        float big = fbm(pw);
+        // smaller, faster detail riding on top of the slow swell
+        float detail = fbm(p * 3.2 - vec2(T * 2.3, T * 1.4));
+        float field = big * 0.72 + detail * 0.28 + uSeed;
+        float m = smoothstep(0.30, 0.86, field);
+        // a cheap surface slope from two offset taps of the warped field,
+        // so billows leaning toward the moon catch its cool light
+        float e = 0.55;
+        vec2 grad = vec2(fbm(pw + vec2(e, 0.0)) - big, fbm(pw + vec2(0.0, e)) - big);
+        float toMoon = clamp(dot(normalize(grad + 1e-4), uMoon) * 0.5 + 0.5, 0.0, 1.0);
+        vec3 trough = vec3(0.05, 0.062, 0.115);
+        vec3 crest  = vec3(0.20, 0.235, 0.33);
+        vec3 col = mix(trough, crest, m);
+        // moon-facing crests catch a cool highlight; troughs stay in shade
+        col += vec3(0.10, 0.13, 0.185) * toMoon * m;
+        // the plane's rim must never show; a low alpha floor keeps the
+        // troughs present as haze instead of punching back to bare sky
+        float rim = smoothstep(0.5, 0.22, distance(vUv, vec2(0.5)));
+        gl_FragColor = vec4(col, (0.12 + 0.88 * m) * rim * uOpacity);
       }`,
   });
-  mist = new THREE.Mesh(new THREE.PlaneGeometry(1100, 1100), mistMat);
+}
+let mist = null;
+if (!LOW_FX) {
+  // the near sea: broad moonlit billows just below the deck
+  const nearMat = makeMistMat({ scale: 0.010, speed: 0.011, opacity: 0.8, seed: 0.0 });
+  mist = new THREE.Mesh(new THREE.PlaneGeometry(1100, 1100), nearMat);
   mist.rotation.x = -Math.PI / 2;
-  mist.renderOrder = -1;
+  mist.renderOrder = -2;
   scene.add(mist);
-  skyGroup.userData.mistMat = mistMat;
+  mistLayers.push({ mesh: mist, mat: nearMat, drop: 18 });
+  // a fainter, slower deep layer for parallax
+  const farMat = makeMistMat({ scale: 0.006, speed: 0.006, opacity: 0.42, seed: 0.06 });
+  const mistFar = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), farMat);
+  mistFar.rotation.x = -Math.PI / 2;
+  mistFar.renderOrder = -3;
+  scene.add(mistFar);
+  mistLayers.push({ mesh: mistFar, mat: farMat, drop: 46 });
+  skyGroup.userData.mistMat = nearMat;
 }
 
 // stray wisps of the mist sea, lapping at the causeway's flanks
@@ -2236,9 +2345,9 @@ function animate() {
   }
   updateLamps(t);
   updateMistWisps(t);
-  if (mist) {
-    mist.position.set(camera.position.x, camera.position.y - 24, camera.position.z);
-    mist.material.uniforms.uTime.value = t;
+  for (const layer of mistLayers) {
+    layer.mesh.position.set(camera.position.x, camera.position.y - layer.drop, camera.position.z);
+    layer.mat.uniforms.uTime.value = t;
   }
   auroraMat.uniforms.uTime.value = t;
 

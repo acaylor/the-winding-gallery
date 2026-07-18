@@ -7,6 +7,7 @@ import { EffectComposer } from '/vendor/three-addons/postprocessing/EffectCompos
 import { RenderPass } from '/vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from '/vendor/three-addons/postprocessing/UnrealBloomPass.js';
 import { GTAOPass } from '/vendor/three-addons/postprocessing/GTAOPass.js';
+import { ShaderPass } from '/vendor/three-addons/postprocessing/ShaderPass.js';
 import { OutputPass } from '/vendor/three-addons/postprocessing/OutputPass.js';
 import {
   STEP, extendPath as extendPathState, makePathState,
@@ -82,8 +83,13 @@ const canvas = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.08;
+// AgX rolls the highlights off more gracefully than ACES and keeps the
+// night's colours from oversaturating under the lantern glow. It is free
+// (applied in the OutputPass at default quality, in the renderer at low),
+// so it grades every pipeline. Exposure lifted to compensate for AgX's
+// darker mid-tones.
+renderer.toneMapping = THREE.AgXToneMapping;
+renderer.toneMappingExposure = 1.05;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 if (!LOW_FX) {
   renderer.shadowMap.enabled = true;
@@ -100,6 +106,7 @@ const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 25
 // post: bloom so the flames, moon and wisp genuinely glow (tone mapping
 // moves into the OutputPass; the multisampled HDR target keeps the AA)
 let composer = null;
+let gradePass = null;
 if (!LOW_FX) {
   const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, {
     type: THREE.HalfFloatType, samples: 4,
@@ -130,7 +137,43 @@ if (!LOW_FX) {
   };
   composer.addPass(gtao);
   composer.addPass(new UnrealBloomPass(
-    new THREE.Vector2(innerWidth, innerHeight), 0.45, 0.55, 0.85));
+    new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.6, 0.8));
+  // a single cheap final pass: a soft vignette to settle the eye toward
+  // the path, and fine animated film grain to break up the smooth night
+  // gradients. Both are meant to be felt, not seen. Runs before the
+  // OutputPass so the tone-map still has the last word.
+  gradePass = new ShaderPass({
+    uniforms: {
+      tDiffuse: { value: null },
+      uTime: { value: 0 },
+      uResolution: { value: new THREE.Vector2(innerWidth, innerHeight) },
+      uVignette: { value: 0.34 },
+      uGrain: { value: 0.02 },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      uniform float uTime, uVignette, uGrain;
+      uniform vec2 uResolution;
+      varying vec2 vUv;
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      void main() {
+        vec4 c = texture2D(tDiffuse, vUv);
+        vec2 q = vUv - 0.5;
+        float vig = 1.0 - uVignette * dot(q, q) * 2.1;
+        c.rgb *= vig;
+        // luminance-matched grain, re-seeded each frame so it shimmers
+        float g = hash(vUv * uResolution + fract(uTime) * vec2(37.0, 17.0)) - 0.5;
+        c.rgb += g * uGrain;
+        gl_FragColor = c;
+      }`,
+  });
+  composer.addPass(gradePass);
   composer.addPass(new OutputPass());
 }
 
@@ -2028,6 +2071,7 @@ addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
   composer?.setSize(innerWidth, innerHeight);
+  gradePass?.uniforms.uResolution.value.set(innerWidth, innerHeight);
 });
 
 // ───────────────────────────────────────── the Wayfarer's Map ──
@@ -2110,6 +2154,14 @@ function updateWing() {
 }
 
 // ───────────────────────────────────────── beholding a plate ──
+// Depth-of-field for the inspect view was evaluated and deferred: three's
+// BokehPass re-renders the whole scene through its own depth material, so
+// it cannot compose with this pipeline's GTAO + bloom HDR passes without
+// either discarding them or paying for a second full scene render — a
+// poor trade against the 60fps-on-integrated-GPU target. A screen-space
+// DOF would need a depth texture the composer doesn't expose after GTAO.
+// The gold frame's own glow and the dimmed, distant backdrop already give
+// the beheld plate ample separation, so the grade ships without DOF.
 const flyFrom = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
 const flyTo = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
 let flyT = 0;
@@ -2361,6 +2413,7 @@ function animate() {
   skyGroup.position.copy(camera.position);
   skyGroup.userData.starMat.uniforms.uTime.value = t;
   ffMat.uniforms.uTime.value = t;
+  if (gradePass) gradePass.uniforms.uTime.value = t;
 
   hoverTick += dt;
   if (hoverTick > 0.08) { hoverTick = 0; updateHover(); updateWing(); }

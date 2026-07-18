@@ -467,22 +467,42 @@ const rootGeo = new THREE.ConeGeometry(0.1, 1, 5);
 rootGeo.rotateX(Math.PI);
 rootGeo.translate(0, -0.5, 0); // origin where the root meets the rock
 
-// a tuft of grass: two crossed cards, painted blades, origin at the base
+// a tuft of grass: two crossed cards, painted blades, origin at the base.
+// Each blade a tapered filled sliver — reads as grass, not a smudge.
 const grassTex = (() => {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const g = c.getContext('2d');
-  for (let i = 0; i < 70; i++) {
-    const x = 12 + Math.random() * 104;
-    const lean = (Math.random() - 0.5) * 46;
-    const top = 12 + Math.random() * 46;
-    const shade = 42 + Math.floor(Math.random() * 50);
-    g.strokeStyle = `rgb(${Math.floor(shade * 0.9)},${shade + 18},${Math.floor(shade * 0.55)})`;
-    g.lineWidth = 1.5 + Math.random() * 2;
+  const blade = (x0, lean, top, w, base, tip) => {
+    const cx = x0 + lean * 0.3, cy = 84;   // control point of the arc
+    const tx = x0 + lean, ty = top;
+    const grad = g.createLinearGradient(x0, 128, tx, ty);
+    grad.addColorStop(0, base); grad.addColorStop(1, tip);
+    g.fillStyle = grad;
     g.beginPath();
-    g.moveTo(x, 128);
-    g.quadraticCurveTo(x + lean * 0.3, 80, x + lean, top);
-    g.stroke();
+    g.moveTo(x0 - w, 128);
+    g.quadraticCurveTo(cx - w * 0.5, cy, tx, ty);       // up the leaning edge
+    g.quadraticCurveTo(cx + w * 0.5, cy, x0 + w, 128);  // down the other
+    g.closePath();
+    g.fill();
+  };
+  for (let i = 0; i < 60; i++) {
+    const x = 10 + Math.random() * 108;
+    const lean = (Math.random() - 0.5) * 52;
+    const top = 8 + Math.random() * 54;
+    const s = 30 + Math.floor(Math.random() * 44);       // deep, in-shadow blades first
+    blade(x, lean, top, 1.4 + Math.random() * 1.6,
+      `rgb(${Math.floor(s * 0.72)},${s + 10},${Math.floor(s * 0.46)})`,
+      `rgb(${Math.floor(s * 0.9)},${s + 26},${Math.floor(s * 0.58)})`);
+  }
+  for (let i = 0; i < 34; i++) {
+    const x = 14 + Math.random() * 100;
+    const lean = (Math.random() - 0.5) * 44;
+    const top = 6 + Math.random() * 40;
+    const s = 58 + Math.floor(Math.random() * 46);       // sunward tips catch light
+    blade(x, lean, top, 1.0 + Math.random() * 1.3,
+      `rgb(${Math.floor(s * 0.7)},${s + 8},${Math.floor(s * 0.44)})`,
+      `rgb(${Math.floor(s * 0.95)},${Math.min(255, s + 40)},${Math.floor(s * 0.6)})`);
   }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -727,11 +747,85 @@ function loadIsleRocks() {
 // grown toward the wind, and flat cloud-pruned needle pads. Each is
 // grown from its segment's seed — no two alike, no asset to ship. The
 // geometry is per-tree, so it goes into the segment's disposables.
+// the solid lump is now only a dimmed silhouette core beneath the needle
+// cards — kept dark so mass reads at distance without showing as a blob
 const padMat = new THREE.MeshStandardMaterial({
-  color: 0x35482c, roughness: 1, vertexColors: true,
-  emissive: 0x141f0b, emissiveIntensity: 0.35,
+  color: 0x25311c, roughness: 1, vertexColors: true,
+  emissive: 0x0d150a, emissiveIntensity: 0.3,
 });
 heightFogify(padMat);
+
+// needle-pad texture: clustered fans of fine radiating slivers, deep green
+// to dusty sage with warm tips, darker toward each cluster base, clean alpha
+const needleTex = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d');
+  const R = () => Math.random();
+  const needle = (x0, y0, ang, len, w, base, tip) => {
+    const tx = x0 + Math.cos(ang) * len, ty = y0 + Math.sin(ang) * len;
+    const nx = Math.cos(ang + Math.PI / 2) * w, ny = Math.sin(ang + Math.PI / 2) * w;
+    const grad = g.createLinearGradient(x0, y0, tx, ty);
+    grad.addColorStop(0, base); grad.addColorStop(1, tip);
+    g.fillStyle = grad;
+    g.beginPath();
+    g.moveTo(x0 - nx, y0 - ny); g.lineTo(x0 + nx, y0 + ny); g.lineTo(tx, ty);
+    g.closePath(); g.fill();
+  };
+  // clustered fans spread across the sheet, drawn dark-base first
+  for (let cl = 0; cl < 15; cl++) {
+    const cx = 18 + R() * 220, cy = 18 + R() * 220;
+    const dir = R() * Math.PI * 2, spread = 0.7 + R() * 1.4;
+    const hue = R();                                  // 0 deep green … 1 dusty sage
+    const gr = 44 + Math.floor(hue * 34);
+    const base = `rgb(${Math.floor(gr * 0.44)},${Math.floor(gr * 0.86)},${Math.floor(gr * 0.4)})`;
+    const warm = R() < 0.4;                           // some fans warm at the tip
+    const tip = warm
+      ? `rgb(${Math.floor(gr * 1.5)},${Math.floor(gr * 1.35)},${Math.floor(gr * 0.7)})`
+      : `rgb(${Math.floor(gr * 0.9)},${Math.floor(gr * 1.4)},${Math.floor(gr * 0.72)})`;
+    const n = 22 + Math.floor(R() * 20);
+    for (let i = 0; i < n; i++) {
+      const a = dir + (R() - 0.5) * spread;
+      needle(cx, cy, a, 26 + R() * 46, 1.1 + R() * 1.1, base, tip);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+})();
+const needleMat = new THREE.MeshStandardMaterial({
+  map: needleTex, alphaTest: 0.42, transparent: true, depthWrite: true,
+  side: THREE.DoubleSide, roughness: 1, vertexColors: true,
+  emissive: 0x0d150a, emissiveIntensity: 0.3,
+});
+heightFogify(needleMat);
+
+// one cupped fan card: a horizontal quad drooping at its edges, vertex-darkened
+// toward the rim so the fan feels dense at its heart and shaded beneath
+const needleCardGeo = (() => {
+  const N = 5, pos = [], uv = [], col = [], idx = [];
+  for (let iy = 0; iy <= N; iy++) for (let ix = 0; ix <= N; ix++) {
+    const u = ix / N, v = iy / N;
+    const x = (u - 0.5) * 2, z = (v - 0.5) * 2;
+    const rr = x * x + z * z;
+    pos.push(x, -0.42 * rr, z);                       // cup the rim downward
+    uv.push(u, v);
+    const shade = 0.5 + 0.5 * (1 - Math.min(1, rr)); // rim darker than heart
+    col.push(shade, shade, shade);
+  }
+  const row = N + 1;
+  for (let iy = 0; iy < N; iy++) for (let ix = 0; ix < N; ix++) {
+    const a = iy * row + ix;
+    idx.push(a, a + 1, a + row, a + 1, a + row + 1, a + row);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+})();
 
 // a TubeGeometry that narrows toward its tip, like wood does
 function taperedTube(curve, segs, radius, tipK) {
@@ -797,7 +891,18 @@ function makeMountainPine(rand, disposables) {
     m.castShadow = true;
     g.add(m);
   };
+  // a cupped needle card, jittered in yaw/tilt/scale, shared geometry
+  const addCard = (cx, cy, cz, s, yaw, tiltAxis, tilt) => {
+    const m = new THREE.Mesh(needleCardGeo, needleMat);
+    m.position.set(cx, cy, cz);
+    m.rotation.y = yaw;
+    if (tilt) m.rotateOnAxis(tiltAxis, tilt);
+    m.scale.set(s, s, s);
+    g.add(m);
+  };
+  const yAxis = new THREE.Vector3(1, 0, 0);
   const addPad = (at, r) => {
+    // dimmed lump cores carry silhouette and mass from every angle
     addLump(new THREE.Vector3(at.x, at.y + r * 0.1, at.z), r);
     const lumps = 1 + Math.floor(rand() * 2);
     for (let li = 0; li < lumps; li++) {
@@ -806,6 +911,27 @@ function makeMountainPine(rand, disposables) {
         at.x + Math.cos(a) * d,
         at.y + r * (0.02 + rand() * 0.1),
         at.z + Math.sin(a) * d), r * (0.45 + rand() * 0.3));
+    }
+    // needle cards over the core: a couple of flat canopy fans on top,
+    // a ring of tilted skirt fans to fill the silhouette edge-on
+    const canopy = 2 + Math.floor(rand() * 2);
+    for (let i = 0; i < canopy; i++) {
+      addCard(
+        at.x + (rand() - 0.5) * r * 0.5,
+        at.y + r * (0.16 + rand() * 0.12),
+        at.z + (rand() - 0.5) * r * 0.5,
+        r * (0.85 + rand() * 0.5), rand() * Math.PI * 2,
+        yAxis, (rand() - 0.5) * 0.5);
+    }
+    const skirt = 2 + Math.floor(rand() * 2);
+    for (let i = 0; i < skirt; i++) {
+      const a = (i / skirt + rand() * 0.2) * Math.PI * 2;
+      addCard(
+        at.x + Math.cos(a) * r * 0.55,
+        at.y + r * (0.02 + rand() * 0.08),
+        at.z + Math.sin(a) * r * 0.55,
+        r * (0.6 + rand() * 0.35), a,
+        yAxis, 0.9 + rand() * 0.5);
     }
   };
 

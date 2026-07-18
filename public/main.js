@@ -127,8 +127,12 @@ if (!LOW_FX) {
     const cache = this._visibilityCache;
     this.scene.traverse((object) => {
       const mat = object.material;
-      const skip = object.isPoints || object.isLine || object.isSprite ||
-        (mat && (mat.transparent || mat.isMeshBasicMaterial || mat.isShaderMaterial));
+      // objects tagged aoSolid stay in the pre-pass: a hidden photo plate
+      // leaves the geometry *behind* it in the depth buffer, and the pass
+      // then shades the plate with a ghost imprint of islands it occludes
+      const skip = (object.isPoints || object.isLine || object.isSprite ||
+        (mat && (mat.transparent || mat.isMeshBasicMaterial || mat.isShaderMaterial))) &&
+        !object.userData.aoSolid;
       if (skip && object.visible) {
         object.visible = false;
         cache.push(object);
@@ -334,7 +338,9 @@ skyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(1600, 32, 20), skyMat));
       uniform float uTime;
       void main() {
         float tw = 1.0 - aTwk + aTwk * (0.5 + 0.5 * sin(uTime * 0.8 + aPhase));
-        vA = aBright * tw;
+        // atmospheric extinction: stars die toward the horizon, so none
+        // speckle the mist line or hang beside the lanterns (dome y in m)
+        vA = aBright * tw * smoothstep(45.0, 170.0, position.y);
         vColor = aColor;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         gl_PointSize = aSize;
@@ -1372,6 +1378,10 @@ function buildSegment(idx) {
 
     const photoMat = new THREE.MeshBasicMaterial({ map: placeholderTex, toneMapped: false });
     const photoMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), photoMat);
+    // the plate writes its own depth in the AO pre-pass; a flat plane
+    // gathers no occlusion of its own, but without this the pass reads
+    // the world behind the photo and prints its silhouette on the image
+    photoMesh.userData.aoSolid = true;
     frameGroup.add(photoMesh);
     seg.disposables.push(photoMesh.geometry, photoMat);
 
@@ -1812,8 +1822,11 @@ const ffMat = new THREE.ShaderMaterial({
     varying float vA;
     uniform float uTime;
     void main() {
-      vA = 0.25 + 0.75 * pow(0.5 + 0.5 * sin(uTime * 1.7 + aPhase), 2.0);
       vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      // fireflies belong to the near path: they carry no fog, so without
+      // this fade they read as crisp specks floating over the distant mist
+      vA = (0.25 + 0.75 * pow(0.5 + 0.5 * sin(uTime * 1.7 + aPhase), 2.0))
+        * smoothstep(55.0, 24.0, -mv.z);
       gl_PointSize = 90.0 * vA / max(1.0, -mv.z);
       gl_Position = projectionMatrix * mv;
     }`,

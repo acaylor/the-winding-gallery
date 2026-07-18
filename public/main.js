@@ -136,8 +136,12 @@ if (!LOW_FX) {
     });
   };
   composer.addPass(gtao);
+  // threshold sits above the photos' peak brightness (unlit plates reach
+  // ~exposure = 1.05) so only deliberate HDR emitters — flames at 1.7x, the
+  // moon, the keeper's wisp, fireflies — cross it and bloom. Photographs and
+  // gold-frame speculars stay crisp instead of washing into halos.
   composer.addPass(new UnrealBloomPass(
-    new THREE.Vector2(innerWidth, innerHeight), 0.5, 0.6, 0.8));
+    new THREE.Vector2(innerWidth, innerHeight), 0.32, 0.4, 1.1));
   // a single cheap final pass: a soft vignette to settle the eye toward
   // the path, and fine animated film grain to break up the smooth night
   // gradients. Both are meant to be felt, not seen. Runs before the
@@ -1382,7 +1386,12 @@ function buildSegment(idx) {
     const glow = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1),
       new THREE.MeshBasicMaterial({
-        map: glowTex, color: 0xd7b46a, transparent: true, opacity: 0.3,
+        map: glowTex, color: 0xd7b46a, transparent: true,
+        // real bloom carries the plate's glow now, so on the default pipeline
+        // this sprite-based halo is halved (it used to double up and swallow
+        // the plaques). LOW_FX has no composer, so this fake glow is its only
+        // one — keep the original strength there.
+        opacity: LOW_FX ? 0.3 : 0.16,
         blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
       })
     );
@@ -1463,7 +1472,10 @@ function buildSegment(idx) {
       lantern.add(post, cage, flame);
     }
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: glowTex, color: hotColor(COL.flame, 1.7), transparent: true, opacity: 0.75,
+      map: glowTex, color: hotColor(COL.flame, 1.7), transparent: true,
+      // bloom picks up the 1.7x flame now; halve the sprite halo on the
+      // default pipeline. LOW_FX keeps the full sprite as its only glow.
+      opacity: LOW_FX ? 0.75 : 0.38,
       blending: THREE.AdditiveBlending, depthWrite: false,
     }));
     glow.scale.setScalar(2.6);

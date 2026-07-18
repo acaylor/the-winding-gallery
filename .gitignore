@@ -3,3 +3,5 @@ node_modules/
 # generated sample plates — recreate with `npm run samples`
 photos/
 .claude/
+# built site + deploy-time screenshots — assembled by the Pages workflow
+_site/

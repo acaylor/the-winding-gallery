@@ -10,6 +10,36 @@ whatever stands in **Unreleased**.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-18
+
+### Added
+
+- **The breathing sky** — the backdrop stops being a gradient:
+  - The mist sea below the causeway is now a slow, breathing cloud sea —
+    domain-warped noise billows on two drifts, moonlit on their crests,
+    with a fainter parallax layer beneath.
+  - A milky-way band crosses the night, warm at its core and cool at its
+    edges, over faint nebulae; stars now vary in size and brightness,
+    a few carry their own colour, and some of them twinkle.
+  - Far islands melt into the haze instead of standing as black cutouts.
+- **Stone in shadow** — unlit surfaces show material, not silhouette:
+  - The ambient floor rises to a cool moon-blue, so arches, curbs and
+    posts keep their texture in the dark while lantern pools still rule.
+  - Walker and lantern shadow maps doubled to 1024; a stronger moon-side
+    rim gives every structure a legible edge against the sky.
+  - Distant curbs no longer strand as floating black slabs where the
+    deck fell into fog — the far path reads as one connected ribbon.
+- **The filmic grade** — AgX tone mapping across every quality level,
+  with re-tuned exposure and bloom; a whisper of vignette and animated
+  film grain on the default pipeline. (Behold-mode depth of field was
+  evaluated and deliberately left out — the pass could not share the
+  occlusion+bloom pipeline within the frame budget.)
+- **Needle foliage** — the mountain pines' canopies are now layered
+  needle-fan cards painted at runtime onto a canvas texture (deep green
+  to dusty sage, warm tips), cupped over a dimmed silhouette core; the
+  island grass tufts grew individual tapered blades. Still no asset
+  shipped, and no two trees alike.
+
 ## [0.4.0] - 2026-07-14
 
 ### Added
@@ -161,7 +191,8 @@ whatever stands in **Unreleased**.
   versions, npm publishing via OIDC trusted publishing, and the official
   site on GitHub Pages.
 
-[Unreleased]: https://github.com/acaylor/the-winding-gallery/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/acaylor/the-winding-gallery/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/acaylor/the-winding-gallery/compare/a125076...v0.2.0

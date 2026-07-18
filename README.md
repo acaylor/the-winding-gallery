@@ -38,9 +38,11 @@ place you can *walk through*:
   dissolved behind you, winding and gently climbing forever. When the
   collection runs out, it begins again — the gallery never ends.
 - **A place, not a page.** Real CC0 surfaces (mossy cobblestones, rock,
-  bark from [ambientCG](https://ambientcg.com)) and the Khronos CC0
-  lantern model — under moonlight and moon-shadow, blooming lantern
-  flames, an aurora, fireflies, and a slow sea of mist below the path.
+  bark from [ambientCG](https://ambientcg.com)), Poly Haven photoscanned
+  islands and the Khronos CC0 lantern model — under moonlight and
+  moon-shadow, blooming lantern flames, an aurora and a milky-way band,
+  fireflies, windswept mountain pines grown procedurally on the drifting
+  islands, and a breathing sea of moonlit cloud below the path.
 - **Wings & waygates.** Subfolders become *wings* of the gallery: each
   hangs together on the path, announced by a stone waygate carved with
   its name. Press **M** for the Wayfarer's Map and step to any wing.
@@ -120,8 +122,8 @@ pnpm test          # node --test: path math, server API, PNG conjurer
 Handy query params: `?auto` skips the entrance veil, `?s=120` starts
 120 m down the path, `?yaw=45` turns the starting view, `?behold` flies
 to the nearest plate, `?tour` starts the Keeper's Tour — pair it with
-`?auto` for a kiosk/TV slideshow. `?quality=low` skips bloom, shadows
-and the mist sea for modest machines. `window.__winding()` reports
+`?auto` for a kiosk/TV slideshow. `?quality=low` skips bloom, shadows,
+ambient occlusion, the film grade and the mist sea for modest machines. `window.__winding()` reports
 walker state for tooling.
 
 Releases: CI runs the tests on every push. Tag `vX.Y.Z-rc.N` from a PR

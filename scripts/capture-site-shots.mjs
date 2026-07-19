@@ -110,34 +110,41 @@ async function main() {
     browser = await chromium.launch({
       args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
     });
-    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
-
     for (const shot of SHOTS) {
-      const t0 = Date.now();
-      const port = shot.wings ? WINGS_PORT : PORT;
-      await page.goto(`http://localhost:${port}/${shot.q}`, { waitUntil: 'load' });
-      await page.waitForFunction(() => typeof window.__winding === 'function',
-        null, { timeout: 60000 });
-      if (shot.mode) {
-        await page.waitForFunction((m) => window.__winding().mode === m,
-          shot.mode, { timeout: 180000 });
+      // SwiftShader can leave a WebGL renderer unable to navigate after a
+      // capture. An isolated page per shot keeps the browser usable.
+      const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+      try {
+        const t0 = Date.now();
+        const port = shot.wings ? WINGS_PORT : PORT;
+        await page.goto(`http://localhost:${port}/${shot.q}`, {
+          waitUntil: 'domcontentloaded', timeout: 180000,
+        });
+        await page.waitForFunction(() => typeof window.__winding === 'function',
+          null, { timeout: 60000 });
+        if (shot.mode) {
+          await page.waitForFunction((m) => window.__winding().mode === m,
+            shot.mode, { timeout: 180000 });
+        }
+        await page.waitForTimeout(shot.settle ?? SETTLE);
+        if (shot.key) {
+          await page.keyboard.press(shot.key);
+          await page.waitForTimeout(2000);
+        }
+        const file = path.join(OUT, `${shot.name}.jpg`);
+        // Playwright's screenshot helper can wait indefinitely for a frame from
+        // SwiftShader. Capturing through CDP both pumps the compositor (which
+        // headless Chrome otherwise throttles) and skips that helper's wait.
+        const cdp = await page.context().newCDPSession(page);
+        const { data } = await cdp.send('Page.captureScreenshot', {
+          format: 'jpeg', quality: 85, fromSurface: true,
+        });
+        await cdp.detach();
+        await writeFile(file, data, 'base64');
+        console.log(`  ✦ ${shot.name}.jpg  (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+      } finally {
+        await page.close();
       }
-      await page.waitForTimeout(shot.settle ?? SETTLE);
-      if (shot.key) {
-        await page.keyboard.press(shot.key);
-        await page.waitForTimeout(2000);
-      }
-      const file = path.join(OUT, `${shot.name}.jpg`);
-      // Playwright's screenshot helper can wait indefinitely for a frame from
-      // SwiftShader. Capturing through CDP both pumps the compositor (which
-      // headless Chrome otherwise throttles) and skips that helper's wait.
-      const cdp = await page.context().newCDPSession(page);
-      const { data } = await cdp.send('Page.captureScreenshot', {
-        format: 'jpeg', quality: 85, fromSurface: true,
-      });
-      await cdp.detach();
-      await writeFile(file, data, 'base64');
-      console.log(`  ✦ ${shot.name}.jpg  (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
     }
   } finally {
     if (browser) await browser.close();

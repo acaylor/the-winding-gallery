@@ -77,7 +77,11 @@ function pathFrame(s, pos, tan, side) {
 
 // ───────────────────────────────────────── renderer & scene ──
 // ?quality=low keeps the pre-0.4 pipeline: no bloom, no shadows, no mist
-const LOW_FX = new URLSearchParams(location.search).get('quality') === 'low';
+const query = new URLSearchParams(location.search);
+const LOW_FX = query.get('quality') === 'low';
+// Screenshot tooling can skip time-based camera transitions on CI, where
+// headless Chrome deliberately throttles animation frames.
+const CAPTURE_MODE = query.get('capture');
 
 const canvas = document.getElementById('scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -2489,6 +2493,15 @@ function beholdPlate(mesh) {
   plateMeta.textContent = mesh.userData.dims ? `${mesh.userData.dims} px` : '';
 }
 
+function settleBeholdForCapture() {
+  if (!CAPTURE_MODE) return;
+  flyT = 1;
+  camera.position.copy(flyTo.pos);
+  camera.quaternion.copy(flyTo.quat);
+  mode = 'inspect';
+  panel.hidden = false;
+}
+
 function returnToPath() {
   if (mode !== 'inspect' && mode !== 'flying') return;
   mode = 'returning';
@@ -2663,6 +2676,14 @@ function animate() {
   if (pendingTour && photoMeshes.length && hud.hidden === false) {
     pendingTour = false;
     tourStart();
+    if (CAPTURE_MODE === 'tour') {
+      const mesh = plateMeshForSeg(tour.targetIdx);
+      if (mesh) {
+        beholdPlate(mesh);
+        settleBeholdForCapture();
+        tour.phase = 'dwell';
+      }
+    }
   }
   if (pendingBehold && photoMeshes.length) {
     pendingBehold = false;
@@ -2672,6 +2693,7 @@ function animate() {
         a.getWorldPosition(_p0).distanceTo(camera.position) -
         b.getWorldPosition(_p1).distanceTo(camera.position))[0];
     beholdPlate(near);
+    if (CAPTURE_MODE === 'inspect') settleBeholdForCapture();
   }
   updateFireflies(player.s, t);
 

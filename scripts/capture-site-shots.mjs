@@ -49,8 +49,8 @@ const SHOTS = [
   { name: 'plate-amber', q: '?auto&s=5&yaw=-40' },
   { name: 'plate-aurora', q: '?auto&s=21.5&yaw=42' },
   // behold/tour play out in real time: wait until the view is beholding
-  { name: 'behold', q: '?auto&s=24&behold', mode: 'inspect', settle: 4000 },
-  { name: 'keepers-tour', q: '?auto&tour', mode: 'inspect', settle: 2500 },
+  { name: 'behold', q: '?auto&s=24&behold&capture=inspect', mode: 'inspect', settle: 4000 },
+  { name: 'keepers-tour', q: '?auto&tour&capture=tour', mode: 'inspect', settle: 2500 },
   { name: 'veil', q: '' },
   { name: 'waygate', q: '?auto&s=44.5', wings: true },
   { name: 'wayfarers-map', q: '?auto&s=90&yaw=35', wings: true, key: 'KeyM' },
@@ -143,7 +143,9 @@ async function main() {
         await writeFile(file, data, 'base64');
         console.log(`  ✦ ${shot.name}.jpg  (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
       } finally {
-        await page.close();
+        // Closing a SwiftShader WebGL page blocks for roughly a minute. Start
+        // teardown but let the next isolated page render while it finishes.
+        void page.close().catch(() => {});
       }
     }
   } finally {

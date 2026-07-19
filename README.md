@@ -20,7 +20,7 @@ as you go.
 ![pnpm](https://img.shields.io/badge/pnpm-11-f69220?logo=pnpm&logoColor=white)
 ![Three.js](https://img.shields.io/badge/three.js-r185-8b5cf6)
 
-<img src="docs/screenshots/the-path.jpg" alt="The winding cobblestone causeway at night above a sea of moonlit mist, plates glowing along the path" width="820">
+<img src="https://acaylor.github.io/the-winding-gallery/screenshots/the-path.jpg" alt="The winding cobblestone causeway at night above a sea of moonlit mist, plates glowing along the path" width="820">
 
 </div>
 
@@ -51,10 +51,10 @@ place you can *walk through*:
 
 | Walking the path | Beholding a plate |
 | --- | --- |
-| <img src="docs/screenshots/lantern.jpg" alt="A lantern burns over the path" width="400"> | <img src="docs/screenshots/behold.jpg" alt="Beholding a plate up close, with its plaque panel" width="400"> |
+| <img src="https://acaylor.github.io/the-winding-gallery/screenshots/lantern.jpg" alt="A lantern burns over the path" width="400"> | <img src="https://acaylor.github.io/the-winding-gallery/screenshots/behold.jpg" alt="Beholding a plate up close, with its plaque panel" width="400"> |
 
 <div align="center">
-<img src="docs/screenshots/veil.jpg" alt="The entrance veil" width="640">
+<img src="https://acaylor.github.io/the-winding-gallery/screenshots/veil.jpg" alt="The entrance veil" width="640">
 </div>
 
 ## 🚀 Quick start
@@ -132,8 +132,11 @@ branch to stage a prerelease on the npm **`next`** dist-tag; tag
 [trusted publishing](https://docs.npmjs.com/trusted-publishers/) (OIDC),
 no tokens, provenance attested. Release notes come from
 [CHANGELOG.md](CHANGELOG.md) (Keep a Changelog — a stable tag **fails to
-publish** without its section). The website deploys to GitHub Pages from
-`docs/` on every push to `main`.
+publish** without its section). The website deploys to GitHub Pages on
+every push to `main` that touches the app or the site: the workflow boots
+the gallery, captures every screenshot fresh from the code being deployed
+(`scripts/capture-site-shots.mjs`), and ships `docs/` plus those captures
+as the Pages artifact — no screenshot lives in the repo.
 
 More reading: [ARCHITECTURE.md](ARCHITECTURE.md) — the tech stack and how
 the pieces fit · [MILESTONES.md](MILESTONES.md) — the development

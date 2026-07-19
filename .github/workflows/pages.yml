@@ -1,8 +1,8 @@
 name: Deploy site
 
-# The site's screenshots are captured here, at deploy time, from the code
-# being deployed — they are not committed to the repo (issue #12). docs/
-# plus the fresh captures ship together as the Pages artifact.
+# The gallery screenshots are generated from the deployed revision. Each runs
+# on its own software-GL runner: a full scene capture is expensive there, and
+# parallelism keeps the Pages deployment practical.
 
 on:
   push:
@@ -27,11 +27,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  capture:
+    strategy:
+      fail-fast: false
+      matrix:
+        shot:
+          - the-path
+          - hero-far
+          - vista
+          - lantern
+          - plate-amber
+          - plate-aurora
+          - behold
+          - keepers-tour
+          - veil
+          - waygate
+          - wayfarers-map
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -40,10 +52,32 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # playwright drives the captures; CI-only, never a package dependency
+      # Capture-only dependency; the published npm package remains unchanged.
       - run: pnpm add -D playwright
       - run: pnpm exec playwright install --with-deps chromium
-      - run: node scripts/capture-site-shots.mjs --out=_site/screenshots
+      - run: >-
+          node scripts/capture-site-shots.mjs
+          --out=_site/screenshots
+          --shot=${{ matrix.shot }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshot-${{ matrix.shot }}
+          path: _site/screenshots/${{ matrix.shot }}.jpg
+          if-no-files-found: error
+
+  deploy:
+    needs: capture
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: screenshot-*
+          path: _site/screenshots
+          merge-multiple: true
       - run: cp -R docs/. _site/
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5

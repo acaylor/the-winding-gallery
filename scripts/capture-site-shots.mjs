@@ -3,7 +3,7 @@
 // always shows the current code — no screenshot is committed to the
 // repo (issue #12).
 //
-//   node scripts/capture-site-shots.mjs [--out=_site/screenshots] [--port=4790]
+//   node scripts/capture-site-shots.mjs [--out=_site/screenshots] [--port=4790] [--shot=name]
 //
 // Needs playwright with its chromium browser installed (CI does
 // `pnpm add -D playwright && pnpm exec playwright install chromium`);
@@ -25,6 +25,7 @@ const arg = (name, dflt) => {
 const OUT = path.resolve(arg('out', '_site/screenshots'));
 const PORT = Number(arg('port', 4790));
 const WINGS_PORT = PORT + 1;
+const ONLY_SHOT = arg('shot', '');
 // scene warm-up before each shot; CI renders on software GL, so generous
 const SETTLE = Number(arg('settle', 9000));
 
@@ -55,6 +56,10 @@ const SHOTS = [
   { name: 'waygate', q: '?auto&s=44.5', wings: true },
   { name: 'wayfarers-map', q: '?auto&s=90&yaw=35', wings: true, key: 'KeyM' },
 ];
+const selectedShots = ONLY_SHOT
+  ? SHOTS.filter((shot) => shot.name === ONLY_SHOT)
+  : SHOTS;
+if (selectedShots.length === 0) throw new Error(`unknown screenshot: ${ONLY_SHOT}`);
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -110,7 +115,7 @@ async function main() {
     browser = await chromium.launch({
       args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
     });
-    for (const shot of SHOTS) {
+    for (const shot of selectedShots) {
       // SwiftShader can leave a WebGL renderer unable to navigate after a
       // capture. An isolated page per shot keeps the browser usable.
       const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
@@ -153,7 +158,7 @@ async function main() {
     for (const s of servers) s.kill();
     await rm(wingsDir, { recursive: true, force: true });
   }
-  console.log(`${SHOTS.length} screenshots → ${OUT}`);
+  console.log(`${selectedShots.length} screenshots → ${OUT}`);
 }
 
 main().catch((err) => {

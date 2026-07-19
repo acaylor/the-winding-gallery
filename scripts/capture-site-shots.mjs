@@ -11,7 +11,7 @@
 // conjured automatically if `photos/` is missing.
 
 import { spawn } from 'node:child_process';
-import { cp, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -128,7 +128,15 @@ async function main() {
         await page.waitForTimeout(2000);
       }
       const file = path.join(OUT, `${shot.name}.jpg`);
-      await page.screenshot({ path: file, type: 'jpeg', quality: 85 });
+      // Playwright's screenshot helper can wait indefinitely for a frame from
+      // SwiftShader. Capturing through CDP both pumps the compositor (which
+      // headless Chrome otherwise throttles) and skips that helper's wait.
+      const cdp = await page.context().newCDPSession(page);
+      const { data } = await cdp.send('Page.captureScreenshot', {
+        format: 'jpeg', quality: 85, fromSurface: true,
+      });
+      await cdp.detach();
+      await writeFile(file, data, 'base64');
       console.log(`  ✦ ${shot.name}.jpg  (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
     }
   } finally {

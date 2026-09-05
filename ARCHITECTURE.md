@@ -62,8 +62,8 @@ unstarted `http.Server` the suite binds to an ephemeral port.
 **The path** is not stored geometry but a *process*: a heading integrated
 over overlapping sine curvatures (`gallery-math.js`), sampled every
 0.5 m. Curvature amplitudes are bounded (unit-tested) so the minimum turn
-radius always exceeds the path width — the causeway can wander forever
-and never intersect itself. Height climbs ~2 m per 100 m with rolling
+radius always exceeds the path width. This bounds local turning, but
+does not guarantee that distant stretches never intersect. Height climbs ~2 m per 100 m with rolling
 swells, so the horizon is never flat.
 
 **Segment streaming.** The world exists only near the walker: every 16 m
@@ -90,14 +90,15 @@ point light) leading the way. Any input hands control back.
 
 **Lighting** is deliberately cheap: hemisphere + moon directional + one
 flickering walker light + emissive/unlit materials for photos and glows.
-No shadow maps; the night does the work.
+At default quality, the moon and walker light cast shadows; low quality
+disables them.
 
 ## Testing strategy
 
 Four rings, cheapest first:
 
 1. **Pure units** (`gallery-math`, changelog extraction): invariants like
-   "curvature can never knot the path" and "the tour never re-targets the
+   "local turns stay wider than the causeway" and "the tour never re-targets the
    plate it stands at".
 2. **HTTP integration**: real server on an ephemeral port — API shape,
    mime types, traversal rejection, vendor routes.

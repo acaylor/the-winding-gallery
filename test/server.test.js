@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { scanPhotos, safeJoin, createGalleryServer, IMAGE_EXTS } from '../server.js';
+import { scanPhotos, safeJoin, createGalleryServer } from '../server.js';
 
 // ── unit: safeJoin ──────────────────────────────────────────────────
 test('safeJoin resolves inside the root', () => {
@@ -16,12 +16,15 @@ test('safeJoin blocks traversal, encoded traversal and bad escapes', () => {
   assert.equal(safeJoin('/gallery', 'a/../../secret'), null);
   assert.equal(safeJoin('/gallery', '%2e%2e/secret'), null);
   assert.equal(safeJoin('/gallery', '%zz'), null, 'malformed escape must not throw');
+  assert.equal(safeJoin('/gallery', 'photo%00.jpg'), null);
 });
 
 // ── unit: scanPhotos ────────────────────────────────────────────────
-test('scanPhotos finds images recursively, sorted, skipping noise', async () => {
+test('scanPhotos finds images recursively, sorted, skipping noise', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'winding-scan-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   fs.writeFileSync(path.join(dir, 'b-dusk.jpg'), 'x');
+  fs.symlinkSync(path.join(dir, 'b-dusk.jpg'), path.join(dir, 'linked.jpg'));
   fs.writeFileSync(path.join(dir, 'a-dawn.png'), 'x');
   fs.writeFileSync(path.join(dir, 'notes.txt'), 'x');
   fs.writeFileSync(path.join(dir, '.hidden.jpg'), 'x');
@@ -36,18 +39,23 @@ test('scanPhotos finds images recursively, sorted, skipping noise', async () => 
   assert.equal(sub.src, '/photos/trip%20one/firth%20%26%20fell.webp', 'src is URL-encoded');
   assert.equal(sub.wing, 'trip one', 'subdirectory photos carry their wing');
   assert.equal(photos[0].wing, '', 'root photos belong to the root wing');
-  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('scanPhotos of a missing directory is empty, not an error', async () => {
   assert.deepEqual(await scanPhotos('/no/such/directory'), []);
 });
 
-test('IMAGE_EXTS covers the formats browsers can hang', () => {
-  for (const ext of ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif']) {
-    assert.ok(IMAGE_EXTS.has(ext), ext);
+test('scanPhotos stops at 5000 even within a directory or after recursion', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'winding-limit-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(dir, 'a-wing'));
+  fs.writeFileSync(path.join(dir, 'a-wing', 'first.jpg'), 'x');
+  fs.writeFileSync(path.join(dir, 'b.jpg'), 'x');
+  fs.writeFileSync(path.join(dir, 'c.jpg'), 'x');
+  for (const initialCount of [4998, 4999]) {
+    const photos = await scanPhotos(dir, dir, 0, Array(initialCount).fill({}));
+    assert.equal(photos.length, 5000);
   }
-  assert.ok(!IMAGE_EXTS.has('.heic'), 'HEIC cannot be decoded by browsers');
 });
 
 // ── integration: the HTTP server ────────────────────────────────────
@@ -135,4 +143,9 @@ test('vendored three.js and addons are served', async () => {
 
 test('unknown files 404', async () => {
   assert.equal((await fetch(`${base}/no-such-page.html`)).status, 404);
+});
+
+test('a NUL in a file URL is rejected without taking down the server', async () => {
+  assert.equal((await fetch(`${base}/photos/plate%00.png`)).status, 403);
+  assert.equal((await fetch(`${base}/api/photos`)).status, 200);
 });

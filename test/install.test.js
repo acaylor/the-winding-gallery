@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { once } from 'node:events';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -27,21 +28,28 @@ test('the packed tarball installs and serves the app end to end', { timeout: 120
     fs.mkdirSync(photoDir);
     fs.writeFileSync(path.join(photoDir, 'p.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 
-    const port = 4600 + Math.floor(Math.random() * 400);
     const cli = path.join(tmp, 'node_modules', 'the-winding-gallery', 'bin', 'cli.js');
-    const child = spawn(process.execPath, [cli, photoDir, `--port=${port}`], {
+    const child = spawn(process.execPath, [cli, photoDir, '--port=0'], {
       cwd: tmp, stdio: 'pipe',
     });
     try {
-      // wait for the server to answer
-      let up = false;
-      for (let i = 0; i < 50 && !up; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        up = await fetch(`http://127.0.0.1:${port}/api/photos`).then((r) => r.ok, () => false);
-      }
-      assert.ok(up, 'installed CLI serves within 10s');
+      const base = await new Promise((resolve, reject) => {
+        let output = '';
+        const timeout = setTimeout(() => reject(new Error('CLI did not start within 10s')), 10_000);
+        const fail = (err) => { clearTimeout(timeout); reject(err); };
+        child.once('error', fail);
+        child.once('exit', (code) => fail(new Error(`CLI exited before readiness: ${code}`)));
+        child.stdout.on('data', (chunk) => {
+          output += chunk;
+          const match = output.match(/http:\/\/localhost:(\d+)/);
+          if (match) {
+            clearTimeout(timeout);
+            resolve(`http://127.0.0.1:${match[1]}`);
+          }
+        });
+      });
 
-      const photos = await (await fetch(`http://127.0.0.1:${port}/api/photos`)).json();
+      const photos = await (await fetch(`${base}/api/photos`)).json();
       assert.equal(photos.photos.length, 1, 'scans the given directory');
 
       for (const p of [
@@ -52,12 +60,16 @@ test('the packed tarball installs and serves the app end to end', { timeout: 120
         '/assets/lantern-slim.glb',
         '/assets/paving-color.jpg',
       ]) {
-        const res = await fetch(`http://127.0.0.1:${port}${p}`);
+        const res = await fetch(`${base}${p}`);
         assert.equal(res.status, 200, `${p} serves from the installed package`);
         await res.arrayBuffer();
       }
     } finally {
-      child.kill();
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, 'exit');
+        child.kill();
+        await exited;
+      }
     }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });

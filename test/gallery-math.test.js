@@ -34,7 +34,7 @@ test('seededRand is deterministic and stays in [0, 1)', () => {
   for (const v of seqA) assert.ok(v >= 0 && v < 1);
 });
 
-test('curvature stays gentle enough that the path can never knot', () => {
+test('curvature keeps the local turn radius wider than the causeway', () => {
   // max |curvature| bounds the turn rate; the path is ~5.6 m wide, so we
   // need a minimum turn radius comfortably above ~3 m.
   for (let s = 0; s < 20000; s += 0.25) {
@@ -146,5 +146,5 @@ test('extendPath is incremental — extending twice equals extending once', () =
   extendPath(twice, 400);
   const once = makePathState();
   extendPath(once, 400);
-  assert.deepEqual(twice.pts, once.pts.slice(0, twice.pts.length));
+  assert.deepEqual(twice, once);
 });

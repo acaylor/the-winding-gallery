@@ -4,7 +4,7 @@
 export const STEP = 0.5; // metres between path samples
 
 // Curvature of the walker's heading (radians per metre). Gentle overlapping
-// sines: the path wanders forever but can never turn tightly enough to knot.
+// sines keep local turns broad relative to the path width.
 export function curvature(s) {
   return 0.028 * Math.sin(s * 0.021 + 1.3) + 0.019 * Math.sin(s * 0.0093 + 4.1);
 }
@@ -66,20 +66,17 @@ export function nextPlateIndex(currentS, segLen, margin = 2) {
 // the reordered flat list and wings is [{ name, start, count }] with
 // `start` the plate index of the wing's first photo.
 export function groupWings(list) {
-  const order = [];
   const byWing = new Map();
   for (const photo of list) {
     const wing = photo.wing ?? '';
     if (!byWing.has(wing)) {
       byWing.set(wing, []);
-      order.push(wing);
     }
     byWing.get(wing).push(photo);
   }
   const photos = [];
   const wings = [];
-  for (const name of order) {
-    const group = byWing.get(name);
+  for (const [name, group] of byWing) {
     wings.push({ name, start: photos.length, count: group.length });
     photos.push(...group);
   }

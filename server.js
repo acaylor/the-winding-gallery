@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { groupWings } from './public/gallery-math.js';
@@ -52,12 +53,13 @@ export async function scanPhotos(dir, base = dir, depth = 0, out = []) {
   }
   entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   for (const e of entries) {
+    if (out.length >= 5000) break;
     if (e.name.startsWith('.')) continue;
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
       if (e.name === 'node_modules') continue;
       await scanPhotos(full, base, depth + 1, out);
-    } else if (IMAGE_EXTS.has(path.extname(e.name).toLowerCase())) {
+    } else if (e.isFile() && IMAGE_EXTS.has(path.extname(e.name).toLowerCase())) {
       const rel = path.relative(base, full);
       const parts = rel.split(path.sep);
       out.push({
@@ -76,6 +78,7 @@ export function safeJoin(root, urlSubPath) {
   let decoded;
   try {
     decoded = decodeURIComponent(urlSubPath);
+    if (decoded.includes('\0')) return null;
   } catch {
     return null;
   }
@@ -99,7 +102,7 @@ function streamFile(res, filePath) {
       'Content-Length': stat.size,
       'Cache-Control': ext === '.html' ? 'no-cache' : 'max-age=3600',
     });
-    fs.createReadStream(filePath).pipe(res);
+    pipeline(fs.createReadStream(filePath), res, () => {});
   });
 }
 
@@ -158,7 +161,7 @@ export function startFromArgv(argv = process.argv.slice(2)) {
   server.listen(port, () => {
     console.log('');
     console.log('  ✦ The Winding Gallery');
-    console.log(`    path:    http://localhost:${port}`);
+    console.log(`    path:    http://localhost:${server.address().port}`);
     console.log(`    photos:  ${photoDir}`);
     if (!fs.existsSync(photoDir)) {
       console.log('    (that directory does not exist yet — run `npm run samples`');

@@ -104,7 +104,7 @@ winding-gallery ~/Pictures/landscapes --port=4173
   `node_modules` — **no build step**.
 - The path is a heading integrated over gentle overlapping sine
   curvatures (`public/gallery-math.js`), so it wanders and climbs forever
-  without ever knotting. Segments of causeway — cobblestones, curbs,
+  with broad local turns. Segments of causeway — cobblestones, curbs,
   plinths, lanterns, arches, drifting rocks — are built ahead of you and
   dissolved behind you.
 - Plates cycle through your collection endlessly. Photos are decoded

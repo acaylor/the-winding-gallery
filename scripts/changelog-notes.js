@@ -15,13 +15,14 @@ import { fileURLToPath } from 'node:url';
 export function extractNotes(markdown, ver) {
   const isPrerelease = ver.includes('-');
   const heading = isPrerelease ? 'Unreleased' : ver;
-  // section runs from its "## [heading]" line to the next "## [" or the link refs
-  const re = new RegExp(
-    `^## \\[${heading.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}\\][^\\n]*\\n([\\s\\S]*?)(?=^## \\[|^\\[|(?![\\s\\S]))`,
-    'm'
-  );
-  const m = markdown.match(re);
-  const body = m ? m[1].trim() : '';
+  const sections = markdown.split(/^## \[([^\]]+)\][^\n]*\n/m);
+  let body = '';
+  for (let i = 1; i < sections.length; i += 2) {
+    if (sections[i] === heading) {
+      body = sections[i + 1].split(/^\[[^\]]+\]:/m)[0].trim();
+      break;
+    }
+  }
   if (!body) {
     if (isPrerelease) return `Prerelease \`${ver}\` — see the Unreleased section of CHANGELOG.md.`;
     return null;

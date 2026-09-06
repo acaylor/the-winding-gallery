@@ -34,9 +34,7 @@ const COL = {
   stone: 0x474b5e,
   stoneDark: 0x33374a,
   gold: 0xe0b64a,
-  goldDeep: 0xb98a2f,
   flame: 0xffc46b,
-  moss: 0x55703a,
 };
 
 // colors pushed past 1.0 render as HDR emitters, which is what the bloom
@@ -47,7 +45,7 @@ function hotColor(hex, k) {
 
 // ───────────────────────────────────────── the winding path ──
 // A heading integrated over gentle overlapping sine curvature, so the
-// path wanders forever without ever knotting, climbing slowly into the sky.
+// path wanders and climbs slowly into the sky.
 // (The integration itself lives in gallery-math.js, where it is testable.)
 const pathState = makePathState();
 function extendPath(toS) {
@@ -1259,7 +1257,7 @@ function wingDisplay(name) {
   return name ? name.replace(/[-_]+/g, ' ') : 'the entrance hall';
 }
 const texCache = new Map();    // src -> { promise, tex, refs }
-let loadQueue = [];
+const loadQueue = [];
 let loadsActive = 0;
 
 function acquireTexture(src) {
@@ -1282,10 +1280,13 @@ function releaseTexture(src) {
   if (entry.refs <= 0) {
     texCache.delete(src);
     entry.dead = true;
-    if (entry.tex) entry.tex.dispose();
+    if (entry.tex) {
+      entry.tex.dispose();
+      entry.tex.image.close();
+    }
   }
 }
-async function pumpLoads() {
+function pumpLoads() {
   while (loadsActive < 3 && loadQueue.length) {
     const job = loadQueue.shift();
     loadsActive++;
@@ -1293,15 +1294,19 @@ async function pumpLoads() {
   }
 }
 async function loadOne({ src, entry, resolve, reject }) {
+  if (entry.dead) return resolve(null);
+  let bmp;
   try {
-    const blob = await (await fetch(src)).blob();
-    let bmp = await createImageBitmap(blob, { imageOrientation: 'flipY' });
+    const response = await fetch(src);
+    if (!response.ok) throw new Error(`Photo request failed: ${response.status}`);
+    const blob = await response.blob();
+    bmp = await createImageBitmap(blob, { imageOrientation: 'flipY' });
     const maxDim = Math.max(bmp.width, bmp.height);
     if (maxDim > TEX_MAX) {
       const k = TEX_MAX / maxDim;
       const small = await createImageBitmap(bmp, {
-        resizeWidth: Math.round(bmp.width * k),
-        resizeHeight: Math.round(bmp.height * k),
+        resizeWidth: Math.max(1, Math.round(bmp.width * k)),
+        resizeHeight: Math.max(1, Math.round(bmp.height * k)),
         resizeQuality: 'high',
       });
       bmp.close();
@@ -1312,10 +1317,11 @@ async function loadOne({ src, entry, resolve, reject }) {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     tex.needsUpdate = true;
-    if (entry.dead) { tex.dispose(); return resolve(null); }
+    if (entry.dead) { tex.dispose(); bmp.close(); return resolve(null); }
     entry.tex = tex;
     resolve(tex);
   } catch (err) {
+    bmp?.close();
     reject(err);
   }
 }
@@ -1561,7 +1567,7 @@ function buildSegment(idx) {
       photoMesh.scale.set(W, H, 1);
       const g = border.geometry;
       border.geometry = moldedFrameGeometry(W, H);
-      seg.disposables.push(border.geometry);
+      seg.disposables[seg.disposables.indexOf(g)] = border.geometry;
       g.dispose();
       glow.scale.set(W + 1.6, H + 1.6, 1);
     };
@@ -2189,6 +2195,7 @@ wisp.add(wispLight);
 
 function tourStart() {
   if (photos.length === 0 || tour.active) return;
+  player.glide = 0;
   tour.active = true;
   tour.phase = 'travel';
   tour.targetIdx = nextPlateIndex(player.s, SEG_LEN);
@@ -2311,9 +2318,6 @@ const plateName = document.getElementById('plate-name');
 const plateNumber = document.getElementById('plate-number');
 const plateMeta = document.getElementById('plate-meta');
 
-const CANCEL_TOUR_KEYS = new Set([
-  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Escape',
-]);
 addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys.add(e.code);
@@ -2330,15 +2334,15 @@ addEventListener('keydown', (e) => {
     tour.active ? tourStop() : tourStart();
     return;
   }
-  if (tour.active && CANCEL_TOUR_KEYS.has(e.code)) { tourStop(); return; }
+  if (tour.active) { tourStop(); return; }
   if (e.code === 'KeyE') {
-    if (tour.active) { tourStop(); return; }
     if (mode === 'walk' && hovered) beholdPlate(hovered);
     else if (mode === 'inspect') returnToPath();
   }
   if (e.code === 'Escape' && mode === 'inspect') returnToPath();
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
+addEventListener('blur', () => { keys.clear(); player.glide = 0; });
 
 canvas.addEventListener('click', () => {
   if (tour.active) { tourStop(); return; }
@@ -2355,6 +2359,7 @@ addEventListener('mousemove', (e) => {
   player.pitch = THREE.MathUtils.clamp(player.pitch - e.movementY * 0.0023, -1.35, 1.35);
 });
 addEventListener('wheel', (e) => {
+  if (mapOpen || hud.hidden) return;
   if (tour.active) tourStop();
   if (mode !== 'walk') return;
   player.glide = THREE.MathUtils.clamp(player.glide + e.deltaY * 0.014, -16, 26);
@@ -2405,6 +2410,8 @@ function buildMapRows() {
 
 function openMap() {
   tourStop();
+  player.glide = 0;
+  keys.clear();
   mapOpen = true;
   wayMap.hidden = false;
   document.exitPointerLock?.();
@@ -2426,7 +2433,8 @@ async function teleportTo(s) {
   closeMap();
   fadeEl.classList.add('dark');
   await new Promise((r) => setTimeout(r, 380));
-  if (mode === 'inspect' || mode === 'flying') { mode = 'walk'; panel.hidden = true; }
+  mode = 'walk';
+  panel.hidden = true;
   player.s = Math.max(2, s);
   player.lat = 0;
   player.glide = 0;
@@ -2460,10 +2468,9 @@ function updateWing() {
 const flyFrom = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
 const flyTo = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
 let flyT = 0;
-let beholdMesh = null;
 
 function beholdPlate(mesh) {
-  beholdMesh = mesh;
+  player.glide = 0;
   mode = 'flying';
   flyT = 0;
   document.exitPointerLock?.();
@@ -2475,7 +2482,7 @@ function beholdPlate(mesh) {
   mesh.getWorldPosition(center);
   const normal = new THREE.Vector3(0, 0, 1)
     .applyQuaternion(mesh.getWorldQuaternion(new THREE.Quaternion()));
-  const size = Math.max(mesh.scale.x, mesh.scale.y * camera.aspect);
+  const size = Math.max(mesh.scale.x / camera.aspect, mesh.scale.y);
   const dist = (size / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2))) * 1.5 + 0.6;
   flyTo.pos.copy(center).addScaledVector(normal, dist);
   _m.lookAt(flyTo.pos, center, new THREE.Vector3(0, 1, 0));
@@ -2545,7 +2552,8 @@ function computeWalkPose(dt) {
   const moving = fwd !== 0 || strafe !== 0;
 
   pathFrame(player.s, _pos, _tan, _side);
-  if (moving && locked) {
+  const canMove = mode === 'walk' && !mapOpen && !tour.active && !hud.hidden;
+  if (canMove && moving && locked) {
     // world-space wish direction from yaw
     const wish = new THREE.Vector3(
       -Math.sin(player.yaw) * fwd + Math.cos(player.yaw) * strafe,
@@ -2561,7 +2569,7 @@ function computeWalkPose(dt) {
   }
 
   // scroll glide with decay
-  player.s = Math.max(2, player.s + player.glide * dt);
+  if (canMove) player.s = Math.max(2, player.s + player.glide * dt);
   player.glide *= Math.exp(-dt * 1.6);
 
   pathFrame(player.s, _pos, _tan, _side);
@@ -2591,27 +2599,27 @@ async function boot() {
         `Conjure sample plates with <code>npm run samples</code>, or point the ` +
         `gallery at your own photographs:<br><code>npm start -- ~/Pictures/landscapes</code>`;
       veilHint.hidden = false;
-      worldReady = true; // wander the bare path anyway
-      return;
+    } else {
+      veilStatus.textContent =
+        `${photos.length} photograph${photos.length === 1 ? '' : 's'} await along the path.`;
+      hudCount.textContent = `· ${photos.length} plates`;
     }
-    veilStatus.textContent =
-      `${photos.length} photograph${photos.length === 1 ? '' : 's'} await along the path.`;
-    hudCount.textContent = `· ${photos.length} plates`;
     enterBtn.hidden = false;
     // dev/preview: ?auto skips the veil, ?s=120 starts partway down the path
-    const params = new URLSearchParams(location.search);
-    if (params.has('s')) {
-      player.s = Math.max(2, Number(params.get('s')) || 2);
+    if (query.has('s')) {
+      const start = Number(query.get('s'));
+      player.s = Number.isFinite(start) ? Math.max(2, start) : 2;
       faceAlongPath();
     }
-    if (params.has('yaw')) player.yaw += THREE.MathUtils.degToRad(Number(params.get('yaw')) || 0);
-    if (params.has('auto')) {
+    const yaw = Number(query.get('yaw'));
+    if (Number.isFinite(yaw)) player.yaw += THREE.MathUtils.degToRad(yaw);
+    if (query.has('auto')) {
       veil.style.display = 'none';
       hud.hidden = false;
     }
     worldReady = true;
-    if (params.has('behold')) pendingBehold = true;
-    if (params.has('tour')) pendingTour = true;
+    if (query.has('behold')) pendingBehold = true;
+    if (query.has('tour')) pendingTour = true;
   } catch (err) {
     veilStatus.textContent = 'The path could not be unrolled.';
     veilHint.textContent = String(err);

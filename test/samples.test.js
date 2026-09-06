@@ -11,8 +11,9 @@ const SCRIPT = path.join(
   path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'make-sample-photos.js'
 );
 
-test('make-sample-photos conjures valid PNG plates', () => {
+test('make-sample-photos conjures valid PNG plates', (t) => {
   const out = fs.mkdtempSync(path.join(os.tmpdir(), 'winding-samples-'));
+  t.after(() => fs.rmSync(out, { recursive: true, force: true }));
   execFileSync(process.execPath, [SCRIPT, out], { stdio: 'pipe' });
 
   const files = fs.readdirSync(out).filter((f) => f.endsWith('.png'));
@@ -40,5 +41,4 @@ test('make-sample-photos conjures valid PNG plates', () => {
     // ends with IEND
     assert.equal(buf.toString('ascii', buf.length - 8, buf.length - 4), 'IEND');
   }
-  fs.rmSync(out, { recursive: true, force: true });
 });

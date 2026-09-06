@@ -10,6 +10,28 @@ whatever stands in **Unreleased**.
 
 ## [Unreleased]
 
+### Fixed
+
+- Gallery movement and map scrolling now stop while overlays, inspection or
+  the automated tour have control; any key cancels an active tour, and empty
+  galleries can enter and explore the path.
+- Portrait viewports now receive the correct inspection framing, and
+  decoded bitmap resources are closed when textures are released or loading
+  is cancelled.
+- The server rejects NUL-containing URLs, ignores symlinks and other
+  non-regular files during photo scans, caps scans at 5,000 photos, and
+  reports the actual port when started with `--port=0`.
+- Changelog release-note extraction matches exact version headings.
+
+### Changed
+
+- Photo loading rejects failed HTTP responses and cleans up stream and
+  image resources reliably; the packed-install regression test discovers the
+  ephemeral port from the CLI instead of choosing a random one.
+- Temporary test fixtures are cleaned up through test hooks.
+- Architecture and README wording now describes the path's local-turning
+  guarantee and the quality-dependent shadow behavior accurately.
+
 ## [0.5.0] - 2026-07-18
 
 ### Added

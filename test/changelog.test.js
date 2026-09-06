@@ -10,18 +10,15 @@ const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(REPO, 'scripts', 'changelog-notes.js');
 const changelog = fs.readFileSync(path.join(REPO, 'CHANGELOG.md'), 'utf8');
 
-test('the real CHANGELOG.md has non-empty sections for every published release', () => {
-  for (const v of ['0.1.0', '0.2.0']) {
-    const notes = extractNotes(changelog, v);
-    assert.ok(notes && notes.length > 100, `[${v}] section present and substantial`);
-    assert.ok(!notes.includes('## ['), `[${v}] section does not bleed into the next`);
-  }
+test('release headings match exactly and stop at the next release', () => {
+  const md = '## [1x2x3]\nWrong release\n\n## [1.2.3] - 2026-01-01\nCorrect release\n\n## [1.2.2]\nOlder release\n';
+  assert.equal(extractNotes(md, '1.2.3'), 'Correct release');
+  assert.equal(extractNotes('## [1x2x3]\nWrong release\n', '1.2.3'), null);
 });
 
-test('prerelease versions read the Unreleased section', () => {
-  const notes = extractNotes(changelog, '0.3.0-rc.1');
-  assert.ok(notes.length > 0);
-  assert.ok(!notes.includes('[0.2.0]'), 'stops before the released sections');
+test('prereleases use Unreleased and exclude reference definitions', () => {
+  const md = '## [Unreleased]\nNew changes\n\n[Unreleased]: https://example.com/compare\n';
+  assert.equal(extractNotes(md, '1.2.3-rc.1'), 'New changes');
 });
 
 test('a stable version missing from the changelog is a hard failure', () => {

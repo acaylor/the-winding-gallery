@@ -25,6 +25,9 @@ whatever stands in **Unreleased**.
 
 ### Changed
 
+- Added original Blender-authored bronze lanterns and carved stone pedestals,
+  with shared GLB meshes, editable source scenes, and a reproducible asset script.
+
 - Photo loading rejects failed HTTP responses and cleans up stream and
   image resources reliably; the packed-install regression test discovers the
   ephemeral port from the CLI instead of choosing a random one.

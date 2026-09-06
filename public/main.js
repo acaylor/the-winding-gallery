@@ -1229,23 +1229,30 @@ function makeMountainPine(rand, disposables) {
   return g;
 }
 
-// ───────────────────────────────────────── the lantern (Khronos CC0 model) ──
-let lanternProto = null;                                // Group, ground at y=0, arm along +X
-const lanternHead = new THREE.Vector3(0, 2.55, 0);      // where the flame hangs, local
-function loadLantern() {
-  return new Promise((resolve) => {
-    new GLTFLoader().load('/assets/lantern-slim.glb', (gltf) => {
-      const model = gltf.scene;
-      const bbox = new THREE.Box3().setFromObject(model);
-      const k = 2.9 / (bbox.max.y - bbox.min.y);
-      model.scale.setScalar(k);
-      model.position.y = -bbox.min.y * k;
-      lanternProto = model;
-      // the lantern body hangs from the end of the arm, below the crossbar
-      lanternHead.set(bbox.max.x * 0.72 * k, bbox.max.y * 0.62 * k, 0);
-      resolve();
-    }, undefined, () => resolve()); // fall back to the procedural post
-  });
+// ───────────────────────────────────────── Blender-authored gallery props ──
+let lanternProto = null;
+let plinthProto = null;
+// Exported in meters, ground at y=0, lantern arm pointing along +X.
+const lanternHead = new THREE.Vector3(0.74, 1.95, 0);
+async function loadGalleryProps() {
+  const loader = new GLTFLoader();
+  const load = async (name) => {
+    try {
+      const { scene: model } = await loader.loadAsync(`/assets/${name}.glb`);
+      model.traverse((o) => {
+        if (!o.isMesh) return;
+        o.castShadow = o.receiveShadow = true;
+        for (const mat of [o.material].flat()) heightFogify(mat);
+      });
+      return model;
+    } catch (error) {
+      console.warn(`Could not load ${name}; using procedural fallback.`, error);
+      return null;
+    }
+  };
+  [lanternProto, plinthProto] = await Promise.all([
+    load('keeper-lantern'), load('gallery-plinth'),
+  ]);
 }
 
 // ───────────────────────────────────────── photo textures ──
@@ -1505,20 +1512,24 @@ function buildSegment(idx) {
     stand.lookAt(_pos.x, base.y, _pos.z);
     stand.rotateY((rand() - 0.5) * 0.14);
 
-    const plinth = new THREE.Mesh(plinthGeo, stoneVertMat);
-    plinth.position.y = 0.55;
-    const cap = new THREE.Mesh(capGeo, stoneDarkMat);
-    cap.position.y = 1.2;
-    // carved footing and a neck under the cap, so the pedestal is
-    // built masonry rather than one extruded lump
-    const footing = new THREE.Mesh(plinthBaseGeo, stoneVertMat);
-    footing.position.y = 0.09;
-    const neck = new THREE.Mesh(plinthNeckGeo, stoneDarkMat);
-    neck.position.y = 1.08;
-    plinth.castShadow = plinth.receiveShadow = true;
-    cap.castShadow = cap.receiveShadow = true;
-    footing.castShadow = footing.receiveShadow = true;
-    stand.add(plinth, cap, footing, neck);
+    if (plinthProto) {
+      stand.add(plinthProto.clone(true));
+    } else {
+      const plinth = new THREE.Mesh(plinthGeo, stoneVertMat);
+      plinth.position.y = 0.55;
+      const cap = new THREE.Mesh(capGeo, stoneDarkMat);
+      cap.position.y = 1.2;
+      // carved footing and a neck under the cap, so the pedestal is
+      // built masonry rather than one extruded lump
+      const footing = new THREE.Mesh(plinthBaseGeo, stoneVertMat);
+      footing.position.y = 0.09;
+      const neck = new THREE.Mesh(plinthNeckGeo, stoneDarkMat);
+      neck.position.y = 1.08;
+      plinth.castShadow = plinth.receiveShadow = true;
+      cap.castShadow = cap.receiveShadow = true;
+      footing.castShadow = footing.receiveShadow = true;
+      stand.add(plinth, cap, footing, neck);
+    }
 
     // frame + photo plane (rescaled to true aspect once loaded)
     const frameGroup = new THREE.Group();
@@ -2586,7 +2597,7 @@ function computeWalkPose(dt) {
 // ───────────────────────────────────────── boot ──
 async function boot() {
   try {
-    const [res] = await Promise.all([fetch('/api/photos'), loadLantern(), loadIsleRocks()]);
+    const [res] = await Promise.all([fetch('/api/photos'), loadGalleryProps(), loadIsleRocks()]);
     buildHorizonIsles();
     const data = await res.json();
     photos = data.photos;

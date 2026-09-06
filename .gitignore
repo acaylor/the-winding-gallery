@@ -5,3 +5,7 @@ photos/
 .claude/
 # built site + deploy-time screenshots — assembled by the Pages workflow
 _site/
+
+# Local browser verification and Blender backup files
+.playwright-cli/
+assets/blender/*.blend1

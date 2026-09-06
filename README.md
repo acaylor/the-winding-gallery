@@ -39,7 +39,7 @@ place you can *walk through*:
   collection runs out, it begins again — the gallery never ends.
 - **A place, not a page.** Real CC0 surfaces (mossy cobblestones, rock,
   bark from [ambientCG](https://ambientcg.com)), Poly Haven photoscanned
-  islands and the Khronos CC0 lantern model — under moonlight and
+  islands and original Blender-authored bronze lanterns and carved pedestals — under moonlight and
   moon-shadow, blooming lantern flames, an aurora and a milky-way band,
   fireflies, windswept mountain pines grown procedurally on the drifting
   islands, and a breathing sea of moonlit cloud below the path.
@@ -111,7 +111,7 @@ winding-gallery ~/Pictures/landscapes --port=4173
   off-thread, downscaled to 2048 px, and reference-counted so an infinite
   walk stays lean. Plate numbering is in Roman numerals, as is proper for
   a wizard's collection.
-- All bundled art is CC0 — see [ASSETS.md](ASSETS.md).
+- Bundled art is CC0 or original MIT-licensed work — see [ASSETS.md](ASSETS.md).
 
 ## 🧪 Development
 
@@ -145,4 +145,4 @@ when.
 
 ## 📜 License
 
-[MIT](LICENSE). Bundled CC0 assets are catalogued in [ASSETS.md](ASSETS.md).
+[MIT](LICENSE). Bundled assets and their licenses are catalogued in [ASSETS.md](ASSETS.md).

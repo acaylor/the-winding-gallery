@@ -10,6 +10,16 @@ whatever stands in **Unreleased**.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-06
+
+### Added
+
+- Original Blender-authored bronze keeper lanterns and carved stone gallery
+  pedestals now ship as shared GLB assets, with editable source scenes,
+  a studio preview, and a reproducible Blender build script.
+- The new props use the existing CC0 rock textures for stone detail and are
+  documented alongside their MIT-licensed project provenance.
+
 ### Fixed
 
 - Gallery movement and map scrolling now stop while overlays, inspection or
@@ -24,6 +34,14 @@ whatever stands in **Unreleased**.
 - Changelog release-note extraction matches exact version headings.
 
 ### Changed
+
+- Gallery segments clone shared prop geometry and materials so the new assets
+  remain inexpensive to stream and dispose safely.
+- Lantern placement now uses the exported prop's explicit light center.
+- Failed prop loads retain the procedural lantern and plinth fallbacks, while
+  loaded props receive the gallery's shadow and height-fog treatment.
+- The README and asset catalog now distinguish original MIT-licensed work from
+  third-party CC0 assets, and local Blender backup files are ignored.
 
 - Photo loading rejects failed HTTP responses and cleans up stream and
   image resources reliably; the packed-install regression test discovers the
@@ -213,7 +231,8 @@ whatever stands in **Unreleased**.
   versions, npm publishing via OIDC trusted publishing, and the official
   site on GitHub Pages.
 
-[Unreleased]: https://github.com/acaylor/the-winding-gallery/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/acaylor/the-winding-gallery/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.2.0...v0.3.0

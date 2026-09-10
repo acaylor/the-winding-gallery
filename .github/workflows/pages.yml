@@ -59,7 +59,7 @@ jobs:
           node scripts/capture-site-shots.mjs
           --out=_site/screenshots
           --shot=${{ matrix.shot }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: screenshot-${{ matrix.shot }}
           path: _site/screenshots/${{ matrix.shot }}.jpg

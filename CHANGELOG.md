@@ -10,6 +10,30 @@ whatever stands in **Unreleased**.
 
 ## [Unreleased]
 
+### Added
+
+- Small Blender brass corner inlays that follow photo sizing, with shaded frame
+  grooves and softer reflections. Lantern and plinth materials gain exported
+  patina colors, rougher metal, and consistently scaled stone textures.
+
+- Three Blender floating islands with layered cliffs, tapered undersides, tiled
+  rock textures, fitted hanging roots, and simpler distance meshes. Includes
+  editable sources and a studio preview; scanned rocks remain as fallbacks.
+
+- Three Blender mountain pine silhouettes with geometric needle sprays, simpler
+  distant versions, and roots fitted to island surfaces. Trees share compressed
+  geometry and materials, retain synchronized island motion, and fall back to
+  procedural trees if the kit cannot load.
+- A Blender paving kit with three rounded, irregular curb variants and two shallow
+  flagstones placed along the path shoulders. The kit shares one material and
+  uses instancing, with editable sources, a studio preview, and rebuild script.
+- Blender-authored stone arches and waygates with individual courses, beveled
+  edges, a raised arch keystone, and brass detailing matching the gallery props.
+  Includes editable sources, a studio preview, and a reproducible build script.
+- An asset upgrade checklist covering architecture, paving, pines, islands,
+  and frames. Waygates retain dynamic wing labels and existing lights; both
+  new models share resources and retain procedural load-failure fallbacks.
+
 ## [0.6.0] - 2026-09-06
 
 ### Added

@@ -13,6 +13,7 @@ OUT = ROOT / 'public/assets'
 SOURCE = ROOT / 'assets/blender'
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.object.delete(use_global=False)
+bpy.context.preferences.filepaths.save_version = 0
 
 def material(name, color, metal=0, rough=.5, emission=0):
     m = bpy.data.materials.new(name)
@@ -27,11 +28,15 @@ def material(name, color, metal=0, rough=.5, emission=0):
         p.inputs['Emission Strength'].default_value = emission
     return m
 
-bronze = material('Oil-rubbed bronze', (.105, .067, .032), .85, .32)
-gold = material('Worn champagne brass', (.53, .32, .12), .78, .3)
+bronze = material('Oil-rubbed bronze', (.105, .067, .032), .78, .48)
+gold = material('Worn champagne brass', (.53, .32, .12), .72, .46)
 stone = material('Blue limestone', (.24, .29, .31), 0, .86)
 dark = material('Recessed slate', (.055, .085, .095), 0, .9)
 opal = material('Honey opal', (1, .47, .12), .05, .32, 2.5)
+for metal in (bronze, gold):
+    attr = metal.node_tree.nodes.new('ShaderNodeVertexColor')
+    attr.layer_name = 'Recess patina'
+    metal.node_tree.links.new(attr.outputs['Color'], metal.node_tree.nodes.get('Principled BSDF').inputs['Base Color'])
 # Real image-backed stone detail survives GLB export (procedural shader nodes do not).
 p = stone.node_tree.nodes.get('Principled BSDF')
 uv = stone.node_tree.nodes.new('ShaderNodeTexImage')
@@ -59,6 +64,23 @@ def finish(obj, name, mat, bevel=0):
     mod = obj.modifiers.new('Weighted corner normals', 'WEIGHTED_NORMAL')
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.modifier_apply(modifier=mod.name)
+    if mat == stone:
+        uv = obj.data.uv_layers.active or obj.data.uv_layers.new(name='Stone 1.6m')
+        for face in obj.data.polygons:
+            axis = max(range(3), key=lambda k: abs(face.normal[k]))
+            axes = [k for k in range(3) if k != axis]
+            for loop in face.loop_indices:
+                co = obj.matrix_world @ obj.data.vertices[obj.data.loops[loop].vertex_index].co
+                uv.data[loop].uv = (co[axes[0]]/1.6, co[axes[1]]/1.6)
+    if mat in (bronze, gold):
+        tint = obj.data.color_attributes.new(name='Recess patina', type='FLOAT_COLOR', domain='CORNER')
+        for face in obj.data.polygons:
+            # Sheltered downward faces darken; upper edges retain rubbed highlights.
+            shade = .57 if face.normal.z < -.25 else .94 if face.normal.z > .4 else .80
+            for loop in face.loop_indices:
+                co = obj.data.vertices[obj.data.loops[loop].vertex_index].co
+                wear = .035*math.sin(co.x*97+co.y*71+co.z*39)
+                tint.data[loop].color = ((shade+wear)*mat.diffuse_color[0], (shade+wear)*mat.diffuse_color[1], (shade*.94+wear)*mat.diffuse_color[2], 1)
     return obj
 
 def cone(name, z, r1, r2, depth, mat, x=0, y=0, vertices=64, bevel=.008):
@@ -158,6 +180,25 @@ for i in range(8):
             (.025,.083,.083),gold,.005)
     o.rotation_euler = (math.pi/4,0,a)
 export('gallery-plinth')
+
+# A small corner inlay: two tapered leaves and a raised central diamond.
+# Origin is the top-right photo corner; all detail stays outside the image.
+for points in [[(.073,.073,.100),(-.03,.080,.102),(-.14,.066,.088)],
+               [(.073,.073,.100),(.080,-.03,.102),(.066,-.14,.088)]]:
+    tube('Corner leaf vein', points, .005, gold)
+for x,y,angle in [(-.03,.074,-.12),(.074,-.03,math.pi/2+.12)]:
+    o=box('Corner leaf',(x,y,.09),(.15,.025,.016),gold,.008)
+    o.rotation_euler.z=angle
+ornament=box('Corner diamond',(.073,.073,.095),(.06,.06,.025),gold,.008)
+ornament.rotation_euler.z=math.pi/4
+for o in list(bpy.context.scene.objects):
+    if o.type == 'MESH':
+        # Bake before the global rotation so the kit retains a zero corner origin.
+        bpy.context.view_layer.objects.active=o
+        bpy.ops.object.select_all(action='DESELECT');o.select_set(True)
+        bpy.ops.object.transform_apply(location=True,rotation=True,scale=True)
+        o.rotation_euler.x=math.pi/2
+export('gallery-frame-corner')
 
 # A reusable studio scene also provides a quick honest geometry/material review.
 for name, x in [('keeper-lantern',-1),('gallery-plinth',1)]:

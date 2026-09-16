@@ -507,6 +507,10 @@ const goldMat = new THREE.MeshStandardMaterial({
   color: 0xd8ab3c, metalness: 1.0, roughness: 0.9,
   roughnessMap: goldRoughTex, emissive: 0x2c1f06, envMapIntensity: 1.25,
 });
+const frameMat = goldMat.clone();
+frameMat.vertexColors = true;
+frameMat.metalness = .78;
+frameMat.envMapIntensity = .8;
 const flameMat = new THREE.MeshBasicMaterial({ color: hotColor(COL.flame, 2.2) });
 
 // standing stones darken toward the ground they meet — baked into the
@@ -811,11 +815,11 @@ function heightFogify(mat) {
   };
 }
 for (const m of [floorMat, skirtMat, stoneMat, stoneDarkMat, stoneVertMat,
-  stoneDarkVertMat, barkMat, goldMat, grassMat]) heightFogify(m);
+  stoneDarkVertMat, barkMat, goldMat, frameMat, grassMat]) heightFogify(m);
 
 // ──────────────────────────────── the drifting rocks (Poly Haven CC0) ──
-// Photoscanned boulders; every island adrift around the path is an
-// instance of one. Falls back to the old jittered shards if none load.
+// Scanned boulders serve the horizon and the Blender island load-failure fallback.
+const islandProtos = []; // Blender near/far meshes; horizon retains scanned boulders
 const rockProtos = [];       // { geometry, material, half, height } — origin on the footprint
 // moss takes the upward faces of the drifting rocks, in patches, the
 // way weather would leave it — blended in the shader by world normal
@@ -871,10 +875,43 @@ function loadIsleRocks() {
     })));
 }
 
+async function loadGalleryIslands() {
+  const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder);
+  try {
+    const gltf = await loader.loadAsync('/assets/gallery-islands.glb');
+    gltf.scene.updateMatrixWorld(true);
+    const variants = new Map(), materials = new Set();
+    gltf.scene.traverse(o => {
+      const match = o.isMesh && /^island-(\d+)-(near|far)$/.exec(o.name);
+      if (!match) return;
+      const geometry = o.geometry.clone().applyMatrix4(o.matrixWorld);
+      geometry.computeBoundingBox();
+      if (!materials.has(o.material)) {
+        materials.add(o.material);
+        mossify(o.material);
+        heightFogify(o.material);
+      }
+      const variant = variants.get(+match[1]) || {};
+      variant[match[2]] = geometry;
+      variant.material = o.material;
+      variants.set(+match[1], variant);
+      o.geometry.dispose();
+    });
+    for (const [, variant] of [...variants].sort((a,b) => a[0]-b[0])) {
+      if (!variant.near || !variant.far) continue;
+      const bb = variant.near.boundingBox;
+      variant.half = Math.max(bb.max.x-bb.min.x, bb.max.z-bb.min.z)/2;
+      variant.height = bb.max.y;
+      islandProtos.push(variant);
+    }
+  } catch (error) { console.warn('Blender islands unavailable; using scanned rocks.', error); }
+}
+
 // ─────────────────── the mountain pines (procedural, Huangshan style) ──
 // Windswept pines of the eastern high ranges: a leaning S-curved trunk
 // grown toward the wind, and flat cloud-pruned needle pads. Each is
-// grown from its segment's seed — no two alike, no asset to ship. The
+// grown from its segment's seed when the Blender pine kit cannot load. The
 // geometry is per-tree, so it goes into the segment's disposables.
 // the solid lump is now only a dimmed silhouette core beneath the needle
 // cards — kept dark so mass reads at distance without showing as a blob
@@ -1232,17 +1269,29 @@ function makeMountainPine(rand, disposables) {
 // ───────────────────────────────────────── Blender-authored gallery props ──
 let lanternProto = null;
 let plinthProto = null;
+let frameCornerProto = null;
+let archProto = null;
+let waygateProto = null;
+const curbProtos = [], flagstoneProtos = [];
+const pineProtos = [];
 // Exported in meters, ground at y=0, lantern arm pointing along +X.
 const lanternHead = new THREE.Vector3(0.74, 1.95, 0);
 async function loadGalleryProps() {
   const loader = new GLTFLoader();
+  loader.setMeshoptDecoder(MeshoptDecoder);
   const load = async (name) => {
     try {
       const { scene: model } = await loader.loadAsync(`/assets/${name}.glb`);
+      const foggedMaterials = new Set();
       model.traverse((o) => {
         if (!o.isMesh) return;
         o.castShadow = o.receiveShadow = true;
-        for (const mat of [o.material].flat()) heightFogify(mat);
+        for (const mat of [o.material].flat()) {
+          // A kit may share one material across several meshes. Patch its shader once.
+          if (foggedMaterials.has(mat)) continue;
+          heightFogify(mat);
+          foggedMaterials.add(mat);
+        }
       });
       return model;
     } catch (error) {
@@ -1250,9 +1299,47 @@ async function loadGalleryProps() {
       return null;
     }
   };
-  [lanternProto, plinthProto] = await Promise.all([
+  let pavingKit, pineKit;
+  [lanternProto, plinthProto, archProto, waygateProto, pavingKit, pineKit, frameCornerProto] = await Promise.all([
     load('keeper-lantern'), load('gallery-plinth'),
+    load('gallery-arch'), load('gallery-waygate'), load('gallery-paving'), load('gallery-pines'), load('gallery-frame-corner'),
   ]);
+  if (pavingKit) {
+    pavingKit.updateMatrixWorld(true);
+    pavingKit.traverse((o) => {
+      if (!o.isMesh) return;
+      const target = o.name.startsWith('curb-') ? curbProtos
+        : o.name.startsWith('flagstone-') ? flagstoneProtos : null;
+      if (!target) return;
+      // Bake Blender's Y-up conversion and remove studio layout offsets once.
+      const geometry = o.geometry.clone().applyMatrix4(o.matrixWorld);
+      geometry.center();
+      target.push({ geometry, material: o.material });
+      o.geometry.dispose();
+    });
+  }
+  if (pineKit) {
+    pineKit.updateMatrixWorld(true);
+    const variants = new Map();
+    pineKit.traverse((o) => {
+      if (!o.isMesh) return;
+      const match = /^pine-(\d+)-(near|far|roots)(?:-(wood|needles))?$/.exec(o.name);
+      if (!match) return;
+      const id = Number(match[1]);
+      if (!variants.has(id)) variants.set(id, { near: new THREE.Group(), far: new THREE.Group(), roots: null });
+      const proto = variants.get(id);
+      const geometry = o.geometry.clone().applyMatrix4(o.matrixWorld);
+      const mesh = new THREE.Mesh(geometry, o.material);
+      mesh.name = o.name;
+      mesh.castShadow = mesh.receiveShadow = true;
+      if (match[2] === 'roots') proto.roots = mesh;
+      else proto[match[2]].add(mesh);
+      o.geometry.dispose();
+    });
+    for (const [, proto] of [...variants].sort(([a], [b]) => a - b)) {
+      if (proto.near.children.length === 2 && proto.far.children.length === 2 && proto.roots) pineProtos.push(proto);
+    }
+  }
 }
 
 // ───────────────────────────────────────── photo textures ──
@@ -1347,10 +1434,60 @@ const _DOWN = new THREE.Vector3(0, -1, 0);
 function dropOnto(rock, wx, wz, fromY) {
   _dropOrigin.set(wx, fromY, wz);
   _dropRay.set(_dropOrigin, _DOWN);
-  const hit = _dropRay.intersectObject(rock, false)[0];
+  const hit = _dropRay.intersectObject(rock.isLOD ? rock.levels[0].object : rock, false)[0];
   return hit ? hit.point.y : null;
 }
 const _m = new THREE.Matrix4();
+
+function makeIslandPine(rand, disposables) {
+  if (!pineProtos.length) {
+    const tree = makeMountainPine(rand, disposables);
+    // Procedural fallback is about one meter tall; Blender trees are about three.
+    tree.scale.setScalar(3);
+    const wrapper = new THREE.Group();
+    wrapper.add(tree);
+    return wrapper;
+  }
+  const proto = pineProtos[Math.floor(rand() * pineProtos.length)];
+  const tree = new THREE.Group();
+  const lod = new THREE.LOD();
+  lod.addLevel(proto.near.clone(true), 0);
+  lod.addLevel(proto.far.clone(true), LOW_FX ? 30 : 55, .15);
+  // Root fitting changes only this small mesh; trunks and needles remain shared.
+  const roots = new THREE.Mesh(proto.roots.geometry.clone(), proto.roots.material);
+  roots.name = 'fitted-pine-roots';
+  roots.castShadow = roots.receiveShadow = true;
+  disposables.push(roots.geometry);
+  tree.add(lod, roots);
+  return tree;
+}
+
+function fitPineRoots(tree, rock, fromY) {
+  const roots = tree.getObjectByName('fitted-pine-roots');
+  if (!roots) return;
+  tree.updateMatrixWorld(true);
+  const vertices = roots.geometry.attributes.position;
+  const point = new THREE.Vector3();
+  const inverse = new THREE.Matrix4().copy(tree.matrixWorld).invert();
+  for (let i = 0; i < vertices.count; i++) {
+    point.fromBufferAttribute(vertices, i);
+    const originalY = point.y;
+    const weight = THREE.MathUtils.smoothstep(Math.hypot(point.x, point.z), .08, .35);
+    point.applyMatrix4(tree.matrixWorld);
+    const surface = dropOnto(rock, point.x, point.z, fromY);
+    if (surface !== null) {
+      point.y = surface;
+      point.applyMatrix4(inverse);
+      vertices.setY(i, originalY + point.y * weight);
+    } else {
+      // Roots at a broken edge curl down instead of projecting straight into space.
+      vertices.setY(i, originalY - .20 * weight);
+    }
+  }
+  vertices.needsUpdate = true;
+  roots.geometry.computeVertexNormals();
+  roots.geometry.computeBoundingSphere();
+}
 
 function buildSegment(idx) {
   const rand = seededRand(idx * 7919);
@@ -1446,15 +1583,19 @@ function buildSegment(idx) {
   // — weathered curb stones along both edges (instanced) —
   {
     const per = Math.floor(SEG_LEN / 1.6);
-    const inst = new THREE.InstancedMesh(curbGeo, stoneDarkVertMat, per * 2);
-    inst.castShadow = inst.receiveShadow = true;
-    let n = 0;
+    const variants = curbProtos.length ? curbProtos : [{ geometry: curbGeo, material: stoneDarkVertMat }];
+    const batches = variants.map(({ geometry, material }) => {
+      const mesh = new THREE.InstancedMesh(geometry, material, per * 2);
+      mesh.castShadow = mesh.receiveShadow = true;
+      mesh.count = 0;
+      return mesh;
+    });
     const q = new THREE.Quaternion(), qt = new THREE.Quaternion(), sc = new THREE.Vector3();
     const eul = new THREE.Euler(), tint = new THREE.Color();
     for (let sideSign = -1; sideSign <= 1; sideSign += 2) {
       for (let j = 0; j < per; j++) {
         if (rand() < 0.18) continue; // gaps — the gallery is old
-        const s = s0 + j * 1.6 + rand();
+        const s = s0 + j * 1.6 + 0.2 + rand() * 0.35;
         pathFrame(s, _pos, _tan, _side);
         const lat = sideSign * (PATH_W / 2 + 0.08 + rand() * 0.16);
         // sunk into the deck, not floated above it
@@ -1463,16 +1604,50 @@ function buildSegment(idx) {
         // settled, not placed: every stone leans a little differently
         eul.set((rand() - 0.5) * 0.14, (rand() - 0.5) * 0.22, (rand() - 0.5) * 0.16);
         q.multiply(qt.setFromEuler(eul));
-        sc.set(0.75 + rand() * 0.5, 0.75 + rand() * 0.55, 0.7 + rand() * 0.6);
+        sc.set(0.85 + rand() * 0.25, 0.85 + rand() * 0.3, 0.85 + rand() * 0.2);
         _m.compose(_p0, q, sc);
-        inst.setMatrixAt(n, _m);
-        inst.setColorAt(n, tint.setScalar(0.8 + rand() * 0.55));
-        n++;
+        const inst = batches[mod(idx + j + (sideSign > 0 ? 1 : 0), batches.length)];
+        inst.setMatrixAt(inst.count, _m);
+        inst.setColorAt(inst.count, tint.setScalar(0.85 + rand() * 0.3));
+        inst.count++;
       }
     }
-    inst.count = n;
-    group.add(inst);
-    seg.disposables.push(inst);
+    for (const inst of batches) {
+      group.add(inst);
+      // Dispose instance buffers only; geometry/materials are shared across segments.
+      seg.disposables.push(inst);
+    }
+  }
+
+  // — shallow replacement flags near the shoulders, with a clear central lane —
+  if (flagstoneProtos.length) {
+    // Independent seed: adding paving never moves photographs, trees, or lanterns.
+    const pavingRand = seededRand(idx * 104729 + 37);
+    const q = new THREE.Quaternion(), turn = new THREE.Quaternion();
+    const scale = new THREE.Vector3(), tint = new THREE.Color();
+    const forward = new THREE.Vector3(0, 0, 1), up = new THREE.Vector3(0, 1, 0);
+    for (let variant = 0; variant < flagstoneProtos.length; variant++) {
+      const { geometry, material } = flagstoneProtos[variant];
+      const inst = new THREE.InstancedMesh(geometry, material, 6);
+      inst.castShadow = inst.receiveShadow = true;
+      for (let j = 0; j < 6; j++) {
+        const side = j % 2 ? 1 : -1;
+        const s = s0 + 1.8 + Math.floor(j / 2) * 4.5 + variant * 1.5 + pavingRand() * .35;
+        pathFrame(s, _pos, _tan, _side);
+        const lat = side * (1.85 + pavingRand() * .15);
+        const crown = .05 * (1 - (lat / (PATH_W / 2)) ** 2);
+        // A 14 cm slab is mostly embedded: only its top few cm stand above the ribbon.
+        _p0.set(_pos.x + _side.x * lat, _pos.y + crown - .015, _pos.z + _side.z * lat);
+        q.setFromUnitVectors(forward, _tan);
+        q.multiply(turn.setFromAxisAngle(up, (pavingRand() - .5) * .18));
+        scale.set(.9 + pavingRand() * .12, 1, .9 + pavingRand() * .12);
+        _m.compose(_p0, q, scale);
+        inst.setMatrixAt(j, _m);
+        inst.setColorAt(j, tint.setScalar(.95 + pavingRand() * .16));
+      }
+      group.add(inst);
+      seg.disposables.push(inst);
+    }
   }
 
   // — a glowing rune stamped into the flags, sometimes —
@@ -1546,11 +1721,22 @@ function buildSegment(idx) {
     frameGroup.add(photoMesh);
     seg.disposables.push(photoMesh.geometry, photoMat);
 
-    const border = new THREE.Mesh(moldedFrameGeometry(1, 1), goldMat);
+    const border = new THREE.Mesh(moldedFrameGeometry(1, 1), frameMat);
     border.position.z = -0.02;
     border.castShadow = true;
     frameGroup.add(border);
     seg.disposables.push(border.geometry);
+
+    const corners = [];
+    if (frameCornerProto) {
+      for (const [sx, sy] of [[1,1],[-1,1],[-1,-1],[1,-1]]) {
+        const corner = frameCornerProto.clone(true);
+        corner.name = 'frame-corner';
+        corner.scale.set(sx, sy, 1);
+        frameGroup.add(corner);
+        corners.push({corner, sx, sy});
+      }
+    }
 
     // a soft magical glow behind the plate (a plane, so it never
     // slices through the photo the way a camera-facing sprite would)
@@ -1576,6 +1762,7 @@ function buildSegment(idx) {
       const k = Math.min(maxW / w, maxH / h);
       const W = w * k, H = h * k;
       photoMesh.scale.set(W, H, 1);
+      for (const {corner, sx, sy} of corners) corner.position.set(sx*W/2, sy*H/2, -.02);
       const g = border.geometry;
       border.geometry = moldedFrameGeometry(W, H);
       seg.disposables[seg.disposables.indexOf(g)] = border.geometry;
@@ -1674,36 +1861,45 @@ function buildSegment(idx) {
     // pure rotation — a left-handed basis mirrors the geometry and the name
     // plates end up backface-culled
     const basis = _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone().multiplyScalar(-1));
+    if (waygateProto) {
+      const model = waygateProto.clone(true);
+      model.position.copy(_pos);
+      model.quaternion.setFromRotationMatrix(basis);
+      group.add(model);
+    }
     const R = PATH_W / 2 + 0.7;
     for (const ss of [-1, 1]) {
-      const pillar = new THREE.Mesh(gatePillarGeo, stoneVertMat);
-      pillar.position.set(_pos.x + _side.x * R * ss, _pos.y + 1.8, _pos.z + _side.z * R * ss);
-      pillar.quaternion.setFromRotationMatrix(basis);
-      pillar.castShadow = pillar.receiveShadow = true;
-      const cap = new THREE.Mesh(gateCapGeo, stoneDarkMat);
-      cap.position.copy(pillar.position);
-      cap.position.y = _pos.y + 3.74;
-      cap.quaternion.copy(pillar.quaternion);
-      cap.castShadow = true;
+      if (!waygateProto) {
+        const pillar = new THREE.Mesh(gatePillarGeo, stoneVertMat);
+        pillar.position.set(_pos.x + _side.x * R * ss, _pos.y + 1.8, _pos.z + _side.z * R * ss);
+        pillar.quaternion.setFromRotationMatrix(basis);
+        pillar.castShadow = pillar.receiveShadow = true;
+        const cap = new THREE.Mesh(gateCapGeo, stoneDarkMat);
+        cap.position.copy(pillar.position);
+        cap.position.y = _pos.y + 3.74;
+        cap.quaternion.copy(pillar.quaternion);
+        cap.castShadow = true;
+        group.add(pillar, cap);
+      }
       const flame = new THREE.Sprite(new THREE.SpriteMaterial({
         map: glowTex, color: hotColor(COL.flame, 1.7), transparent: true, opacity: 0.7,
         blending: THREE.AdditiveBlending, depthWrite: false,
       }));
       flame.scale.setScalar(1.7);
-      flame.position.copy(cap.position);
-      flame.position.y += 0.45;
-      group.add(pillar, cap, flame);
+      flame.position.set(_pos.x + _side.x * R * ss, _pos.y + 4.19, _pos.z + _side.z * R * ss);
+      group.add(flame);
       seg.disposables.push(flame.material);
       const phase = rand() * 9;
       seg.bobbers.push({ obj: flame, base: flame.position.y, amp: 0, flick: flame.material, phase });
       seg.lamps.push({ x: flame.position.x, y: flame.position.y, z: flame.position.z, phase });
     }
-    const lintel = new THREE.Mesh(gateLintelGeo, stoneMat);
-    lintel.position.set(_pos.x, _pos.y + 4.0, _pos.z);
-    lintel.quaternion.setFromRotationMatrix(basis);
-    lintel.castShadow = true;
-    group.add(lintel);
-    // the wing's name, carved on both faces
+    if (!waygateProto) {
+      const lintel = new THREE.Mesh(gateLintelGeo, stoneMat);
+      lintel.position.set(_pos.x, _pos.y + 4.0, _pos.z);
+      lintel.quaternion.setFromRotationMatrix(basis);
+      lintel.castShadow = true;
+      group.add(lintel);
+    }
     // the wing's name, carved on both faces: the basis plane (+Z → -tan)
     // greets the approaching walker; the far face gets the half-turn
     for (const face of [-1, 1]) {
@@ -1722,32 +1918,39 @@ function buildSegment(idx) {
     // plate that always occupies the midpoint
     const s = s0 + 1.6;
     pathFrame(s, _pos, _tan, _side);
-    const R = PATH_W / 2 + 1.3;
-    // weathered stone bow — grain repeating along the arc at world
-    // scale, not one rock texture stretched over the whole span
-    const archGeo = scaleUV(new THREE.TorusGeometry(R, 0.34, 6, 22, Math.PI), 6, 1.4);
-    const arch = new THREE.Mesh(archGeo, stoneDarkMat);
-    // right-handed basis (side × up = -tan) — see the waygate note above;
-    // the torus is symmetric, so the old mirrored basis merely got lucky
-    _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone().multiplyScalar(-1));
-    arch.quaternion.setFromRotationMatrix(_m);
-    arch.position.set(_pos.x, _pos.y + 1.2, _pos.z);
-    arch.castShadow = true;
-    group.add(arch);
-    seg.disposables.push(arch.geometry);
-    for (const ss of [-1, 1]) {
-      const pillar = new THREE.Mesh(
-        bakeVerticalAO(new THREE.BoxGeometry(0.8, 1.6, 0.8), -0.8, 0.2, 0.55), stoneDarkVertMat);
-      pillar.position.set(_pos.x + _side.x * R * ss, _pos.y + 0.6, _pos.z + _side.z * R * ss);
-      pillar.castShadow = pillar.receiveShadow = true;
-      group.add(pillar);
-      seg.disposables.push(pillar.geometry);
+    if (archProto) {
+      const model = archProto.clone(true);
+      model.position.copy(_pos);
+      _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone().multiplyScalar(-1));
+      model.quaternion.setFromRotationMatrix(_m);
+      group.add(model);
+    } else {
+      const R = PATH_W / 2 + 1.3;
+      // weathered stone bow — grain repeating along the arc at world
+      // scale, not one rock texture stretched over the whole span
+      const archGeo = scaleUV(new THREE.TorusGeometry(R, 0.34, 6, 22, Math.PI), 6, 1.4);
+      const arch = new THREE.Mesh(archGeo, stoneDarkMat);
+      // right-handed basis (side × up = -tan) — see the waygate note above;
+      // the torus is symmetric, so the old mirrored basis merely got lucky
+      _m.makeBasis(_side.clone(), new THREE.Vector3(0, 1, 0), _tan.clone().multiplyScalar(-1));
+      arch.quaternion.setFromRotationMatrix(_m);
+      arch.position.set(_pos.x, _pos.y + 1.2, _pos.z);
+      arch.castShadow = true;
+      group.add(arch);
+      seg.disposables.push(arch.geometry);
+      for (const ss of [-1, 1]) {
+        const pillar = new THREE.Mesh(
+          bakeVerticalAO(new THREE.BoxGeometry(0.8, 1.6, 0.8), -0.8, 0.2, 0.55), stoneDarkVertMat);
+        pillar.position.set(_pos.x + _side.x * R * ss, _pos.y + 0.6, _pos.z + _side.z * R * ss);
+        pillar.castShadow = pillar.receiveShadow = true;
+        group.add(pillar);
+        seg.disposables.push(pillar.geometry);
+      }
     }
   }
 
   // — floating islands adrift around the path —
-  // photoscanned mossy rock (Poly Haven), yawed and stretched per island;
-  // the jittered shards remain only as a fallback if the model failed
+  // Layered Blender limestone, with scanned rocks and jittered shards as fallbacks.
   {
     const n = 2 + Math.floor(rand() * 3);
     for (let j = 0; j < n; j++) {
@@ -1757,9 +1960,18 @@ function buildSegment(idx) {
       const y = _pos.y + (rand() - 0.35) * 16 - 4;
       const phase = rand() * 9;
       let rock, topY, footR;
-      if (rockProtos.length) {
-        const proto = rockProtos[Math.floor(rand() * rockProtos.length)];
-        rock = new THREE.Mesh(proto.geometry, proto.material);
+      if (islandProtos.length || rockProtos.length) {
+        const choices = islandProtos.length ? islandProtos : rockProtos;
+        const proto = choices[Math.floor(rand() * choices.length)];
+        if (proto.near) {
+          rock = new THREE.LOD();
+          rock.name = 'layered-island';
+          for (const [geometry, distance] of [[proto.near, 0], [proto.far, LOW_FX ? 35 : 70]]) {
+            const mesh = new THREE.Mesh(geometry, proto.material);
+            mesh.receiveShadow = true;
+            rock.addLevel(mesh, distance, .15);
+          }
+        } else rock = new THREE.Mesh(proto.geometry, proto.material);
         const k = (1.6 + rand() * 3.2) / proto.half;
         rock.scale.set(
           k * (0.8 + rand() * 0.5),
@@ -1786,13 +1998,16 @@ function buildSegment(idx) {
 
       // — a windswept mountain pine where the island can carry one —
       if (footR > 1.4 && rand() < 0.7) {
-        const tree = makeMountainPine(rand, seg.disposables);
-        // never tiny: a crown a few pixels tall reads as dead sticks
-        tree.scale.setScalar(2.4 + rand() * 2.2);
+        // Keep asset selection and fallback generation independent of island placement.
+        const treeRand = seededRand(idx * 65537 + j * 257 + 19);
+        const tree = makeIslandPine(treeRand, seg.disposables);
+        tree.scale.multiplyScalar(.8 + rand() * .6);
+        tree.rotation.y = treeRand() * Math.PI * 2;
         const ox = (rand() - 0.5) * footR * 0.5, oz = (rand() - 0.5) * footR * 0.5;
         const ty = dropOnto(rock, rock.position.x + ox, rock.position.z + oz, rock.position.y + topY + 5);
         if (ty !== null) {
           tree.position.set(rock.position.x + ox, ty - 0.06, rock.position.z + oz);
+          fitPineRoots(tree, rock, rock.position.y + topY + 5);
           group.add(tree);
           seg.bobbers.push({ obj: tree, base: tree.position.y, amp: rockAmp, phase });
         }
@@ -1825,6 +2040,14 @@ function buildSegment(idx) {
           rock.position.x + (rand() - 0.5) * footR * 0.6,
           rock.position.y + 0.18,
           rock.position.z + (rand() - 0.5) * footR * 0.6);
+        if (rock.isLOD) {
+          // Attach hanging roots to the actual tapered underside.
+          _dropOrigin.set(root.position.x, rock.position.y - 2, root.position.z);
+          _dropRay.set(_dropOrigin, new THREE.Vector3(0, 1, 0));
+          const underside = _dropRay.intersectObject(rock.levels[0].object, false)[0];
+          if (!underside) continue;
+          root.position.y = underside.point.y + .05;
+        }
         group.add(root);
         seg.bobbers.push({ obj: root, base: root.position.y, amp: rockAmp, phase });
       }
@@ -1851,7 +2074,7 @@ const FRAME_PROFILE = [
 ];
 function moldedFrameGeometry(w, h) {
   const P = FRAME_PROFILE;
-  const pos = [], uv = [], idx = [];
+  const pos = [], uv = [], idx = [], colors = [];
   const sides = [
     (u) => [-(w / 2 + u), h / 2 + u, w / 2 + u, h / 2 + u],       // top
     (u) => [w / 2 + u, h / 2 + u, w / 2 + u, -(h / 2 + u)],       // right
@@ -1863,6 +2086,8 @@ function moldedFrameGeometry(w, h) {
     for (let k = 0; k < P.length; k++) {
       const [xa, ya, xb, yb] = side(P[k][0]);
       pos.push(xa, ya, P[k][1], xb, yb, P[k][1]);
+      const shade = [0.48, .67, .93, 1, .53, .88, .62, .96, .65][k];
+      colors.push(shade, shade*.97, shade*.90, shade*.97, shade*.94, shade*.88);
       const v = k / (P.length - 1);
       uv.push(0, v, 2, v);
     }
@@ -1874,6 +2099,7 @@ function moldedFrameGeometry(w, h) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;
@@ -2597,7 +2823,7 @@ function computeWalkPose(dt) {
 // ───────────────────────────────────────── boot ──
 async function boot() {
   try {
-    const [res] = await Promise.all([fetch('/api/photos'), loadGalleryProps(), loadIsleRocks()]);
+    const [res] = await Promise.all([fetch('/api/photos'), loadGalleryProps(), loadIsleRocks(), loadGalleryIslands()]);
     buildHorizonIsles();
     const data = await res.json();
     photos = data.photos;

@@ -67,8 +67,8 @@ does not guarantee that distant stretches never intersect. Height climbs ~2 m pe
 swells, so the horizon is never flat.
 
 **Segment streaming.** The world exists only near the walker: every 16 m
-segment (flagstone ribbon with per-vertex tinting and tiled UVs, curb
-stones as an `InstancedMesh`, one plate, one lantern, occasional arches,
+segment (a mortar ribbon under two instanced flagstone batches, three curb
+stone batches, one plate, one lantern, occasional arches,
 runes, drifting rock islets) is built ~170 m ahead and disposed ~40 m
 behind. Everything a segment allocates is tracked in a `disposables`
 list; shared geometries/materials/textures are never disposed.

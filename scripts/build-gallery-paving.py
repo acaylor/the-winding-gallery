@@ -5,6 +5,7 @@ studio arrange them for editing; the client centers each mesh before instancing.
 """
 import math
 import random
+import runpy
 from pathlib import Path
 import bpy
 from mathutils import Vector
@@ -16,32 +17,19 @@ bpy.ops.object.select_all(action='SELECT')
 bpy.ops.object.delete(use_global=False)
 bpy.context.preferences.filepaths.save_version = 0
 rng = random.Random(219)
-stone = bpy.data.materials.new('Weathered blue limestone')
-stone.use_nodes = True
-p = stone.node_tree.nodes.get('Principled BSDF')
-p.inputs['Roughness'].default_value = .86
-for filename, socket in [('rock-color.jpg', 'Base Color'), ('rock-normal.jpg', 'Normal')]:
-    tex = stone.node_tree.nodes.new('ShaderNodeTexImage')
-    tex.image = bpy.data.images.load(str(OUT / filename))
-    output = tex.outputs['Color']
-    if socket == 'Normal':
-        tex.image.colorspace_settings.name = 'Non-Color'
-        normal = stone.node_tree.nodes.new('ShaderNodeNormalMap')
-        normal.inputs['Strength'].default_value = .35
-        stone.node_tree.links.new(output, normal.inputs['Color'])
-        output = normal.outputs['Normal']
-    stone.node_tree.links.new(output, p.inputs[socket])
+stone_tools = runpy.run_path(str(ROOT/'scripts/gallery-stone.py'))
+stone = stone_tools['limestone'](.25)
 
 
 def block(name, width, length, height, loc, bevel):
     # An eight-sided outline with independently clipped corners. Jitter is baked
     # into each variant, not regenerated at runtime.
     w, l = width/2, length/2
-    cuts = [rng.uniform(.055, .13) for _ in range(4)]
+    cuts = [rng.uniform(.018, .045) for _ in range(4)]
     outline = [(-w+cuts[0],-l),(w-cuts[1],-l),(w,-l+cuts[1]),
                (w,l-cuts[2]),(w-cuts[2],l),(-w+cuts[3],l),
                (-w,l-cuts[3]),(-w,-l+cuts[0])]
-    outline = [(x+rng.uniform(-.014,.014),y+rng.uniform(-.025,.025)) for x,y in outline]
+    outline = [(x+rng.uniform(-.006,.006),y+rng.uniform(-.006,.006)) for x,y in outline]
     verts = [(x,y,z) for z in [-height/2,height/2] for x,y in outline]
     # Gently uneven upper surface; triangulate the cap explicitly.
     for i in range(8,16):
@@ -60,16 +48,11 @@ def block(name, width, length, height, loc, bevel):
     o.select_set(True)
     mod=o.modifiers.new('Rounded worn edges','BEVEL')
     mod.width=bevel
-    mod.segments=3
+    mod.segments=1
     mod.angle_limit=.25
     bpy.ops.object.modifier_apply(modifier=mod.name)
-    uv=o.data.uv_layers.new(name='Stone meters')
+    stone_tools['stone_uvs'](o, (loc[0], loc[1]))
     for face in o.data.polygons:
-        axis=max(range(3),key=lambda i:abs(face.normal[i]))
-        axes=[i for i in range(3) if i!=axis]
-        for loop in face.loop_indices:
-            v=o.data.vertices[o.data.loops[loop].vertex_index].co
-            uv.data[loop].uv=(v[axes[0]]/1.6+loc[0],v[axes[1]]/1.6+loc[1])
         face.use_smooth=True
     mod=o.modifiers.new('Broad stone face normals','WEIGHTED_NORMAL')
     mod.keep_sharp=True
@@ -77,10 +60,10 @@ def block(name, width, length, height, loc, bevel):
     o.select_set(False)
 
 
-for i,(w,l,h) in enumerate([(.55,1.15,.30),(.51,1.08,.28),(.58,1.21,.32)]):
+for i,(w,l,h) in enumerate([(.48,1.48,.24),(.47,1.46,.23),(.49,1.49,.25)]):
     block('curb-'+str(i+1),w,l,h,((i-1)*1.15,1,.18),.045)
-for i,(w,l) in enumerate([(.72,.92),(.84,.78)]):
-    block('flagstone-'+str(i+1),w,l,.14,((i-.5)*1.25,-.65,.08),.025)
+for i,(w,l) in enumerate([(.9,.965),(.9,.965)]):
+    block('flagstone-'+str(i+1),w,l,.12,((i-.5)*1.25,-.65,.08),.014)
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.export_scene.gltf(filepath=str(OUT/'gallery-paving.glb'),export_format='GLB',use_selection=True,export_yup=True)
 bpy.ops.file.pack_all()

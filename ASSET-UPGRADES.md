@@ -1,5 +1,10 @@
 # Asset quality checklist
 
+The checklist below records the original PR 24 implementation. The subsequent
+fidelity pass replaces its island/pine geometry, paving arrangement, surface
+materials, and budgets. Current details and validation are in `ASSETS.md` and
+`VISUAL-FIDELITY.md`.
+
 ## 1. Arches and waygates — completed
 
 - [x] Create Blender sources and GLBs with separate stone courses, beveled edges,

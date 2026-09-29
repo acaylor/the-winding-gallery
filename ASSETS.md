@@ -45,124 +45,92 @@ segment disposal must not dispose those shared resources. Load failures use
 the existing procedural props. Source scenes are development files; only
 `public/assets/` ships in the npm package.
 
-## Original Blender architecture
+## Shared limestone surface
 
-`gallery-arch.glb` and `gallery-waygate.glb` are original MIT-licensed project
-assets using the CC0 Rock035 color and normal textures above. Editable sources,
-a shared studio scene, and `architecture-preview.png` live in `assets/blender/`.
+`limestone-color.png` and `limestone-roughness.png` are local derivatives of the
+CC0 Rock035 image. `scripts/gallery-stone.py` preserves the mineral field,
+regrades its albedo to warm limestone, and derives varied roughness. Broad
+periodic variation tiles without a seam. The existing Rock035 normal map supplies
+fine relief. Each map is 512 × 512; the two PNGs total approximately 615 KiB.
+The helper also supplies consistent metre-scale UV projection to the kits.
+
+## Blender architecture and paving
+
+The arch and waygate have individual beveled stone courses, recessed slate,
+and restrained brass inlay. Three corbel courses under each pier reach inward to
+2.5 m from the path centre, overlapping the 2.8 m half-width of the causeway.
+They remain below walking level. Labels and lantern sockets retain their original
+positions. Both kits use the shared limestone surface.
+
+The paving kit contains `curb-1` through `curb-3` and `flagstone-1` through
+`flagstone-2`. Flags are approximately .90 × .12 × .965 m in runtime X/Y/Z.
+Six columns and sixteen rows cover each 16 m segment, with staggered cross-joints,
+narrow gaps, worn centre tones, and shared geometry/materials. Two instance
+batches draw all 96 flags. Three additional batches draw the curbs. The underlying
+ribbon is a recessed mortar bed; a failed kit load retains the old textured path.
+A full tangent/side/up basis keeps both flags and curbs upright on slopes.
+
+Flags receive shadows but do not cast into every point-light cube; default quality
+gets joint contact from GTAO. Curbs and architecture cast and receive shadows.
+Segment cleanup disposes instance buffers, never the shared prototypes.
+
+## Blender mountain pines and islands
+
+The three pines have irregular branch tiers, secondary twigs, directional needle
+sprays, and small dark rounded inner crowns that remain legible when needles
+become subpixel. Near and far geometry share the same branch/crown locations.
+Needles are opaque geometry: no alpha sorting, additional textures, or shader
+extensions. Bark reuses the CC0 Bark012 maps. Only the 280-triangle root mesh is
+copied and fitted per tree; the rest is shared. Detail switches at 55 m (30 m in
+low quality) with 15% hysteresis. Trees and fitted roots follow island bobbing.
+
+The island kit contains three separately shaped masses: a broad mesa, an extended
+prow, and a squat buttress. Distinct footprints, shear directions, and fracture
+profiles replace the previous shared ring stack. Small edge bevels and weighted
+normals preserve broad rock planes. Far meshes are reduced from each actual near
+mesh, keeping its silhouette. Detail switches at 70 m (35 m in low quality) with
+15% hysteresis. Only near meshes cast shadows at default quality; all levels
+receive them. Attachment raycasts always sample the near geometry. Scanned rocks
+remain the horizon assets and load-failure fallback.
+
+Preserve `pine-N-near-wood`, `pine-N-near-needles`, `pine-N-far-wood`,
+`pine-N-far-needles`, `pine-N-roots`, `island-N-near`, and `island-N-far` names.
+The loaders use those names to assemble shared detail levels.
+
+## Frame inlays and existing props
+
+`gallery-frame-corner.glb` is the original MIT-licensed brass leaf-and-diamond
+inlay. Its geometry and material are shared. Four positive-scale, rotated
+instances now draw all corners of each frame in **one draw call**, retaining
+2,576 triangles per photo. Instance matrices and bounds update when the photo's
+true dimensions arrive. Failed loading leaves the original molded frame.
+
+Lantern and plinth source assets retain PR 24's patina vertex colors, material
+roughness and stone UVs. Their GLBs are approximately 787 and 542 KiB respectively.
+Lantern halo animation now scales the authored opacity instead of replacing it,
+so the smaller default-quality halo survives flicker updates.
+
+## Rebuild and inspect
+
+Use Blender 5.2+ with its bundled MeshOptimizer exporter. Sources, studio scenes,
+and refreshed previews are in `assets/blender/`; development sources do not ship
+in the npm package. Rebuild the changed surface and kits in this order:
 
 ```sh
+blender -b --python scripts/gallery-stone.py
 blender -b --python scripts/build-gallery-architecture.py
-```
-
-The arch has 19 separate beveled wedge stones, a raised keystone, and coursed
-piers. The waygate uses coursed piers, a segmented lintel, slate inscription beds,
-and brass fillets. Both export three meshes/materials, in meters with Y up and
-the ground at zero. They span the local X axis; the approach face is +Z.
-World-scale UVs keep the stone grain consistent across courses and bevels.
-
-Runtime clones share geometry and materials and retain procedural load-failure
-fallbacks. Wing names remain dynamic on both faces at y=4, z=±0.52; the existing
-flames remain at x=±3.5, y=4.19. No additional lights are introduced.
-
-The prioritized improvement checklist is in `ASSET-UPGRADES.md`.
-
-## Original Blender paving kit
-
-`gallery-paving.glb` contains three worn curb variants and two shallow flagstones,
-using one shared limestone material with the CC0 Rock035 color/normal textures.
-The original geometry is MIT licensed. Editable sources, the review scene, and
-`paving-preview.png` are in `assets/blender/`.
-
-```sh
 blender -b --python scripts/build-gallery-paving.py
-```
-
-Keep mesh names `curb-1` through `curb-3` and `flagstone-1` through `flagstone-2`:
-the loader uses those prefixes, bakes the exported transforms, and centers each
-mesh once. Curbs are approximately 0.55 × 0.30 × 1.15 m (X/Y/Z in the app);
-flagstones are 0.14 m thick and mostly embedded in the path shoulders. UVs use
-the architecture's 1.6 m stone scale. The center of the winding path stays clear.
-
-The 281 KiB GLB has five meshes at 380 triangles each. Each streamed segment
-uses three curb batches and two flagstone batches (up to 20 curbs and 12 flags).
-Instances share geometry, textures, and material; segment disposal releases only
-their instance buffers. Added flags use a separate deterministic random stream.
-If loading fails, the box curbs and original textured path remain available.
-
-
-## Original Blender mountain pines
-
-`gallery-pines.glb` contains three MIT-licensed pine designs: a leaning sentinel,
-a low windswept tree, and a forked crown. The bark reuses the CC0 Bark012 images;
-the needles use original geometry and vertex colors, with no foliage image or
-alpha blending. Sources and a studio preview are in `assets/blender/`.
-
-```sh
-# Blender 5.2+ with its bundled MeshOptimizer exporter
+blender -b --python scripts/build-gallery-islands.py
 blender -b --python scripts/build-gallery-pines.py
 ```
 
-The script exports meter-scale Y-up geometry rooted at zero, then arranges the
-editable `.blend` for inspection. Far meshes are hidden in the source/studio;
-unhide them to inspect the simplified versions. Preserve the mesh names
-`pine-N-near-wood`, `pine-N-near-needles`, `pine-N-far-wood`,
-`pine-N-far-needles`, and `pine-N-roots` for N=1,2,3.
-
-The meshopt-compressed GLB is approximately 1.46 MiB with two shared materials.
-Each nearby tree renders 9,714–10,888 triangles including roots; distant trees
-render 3,394–3,770. The app switches at 55 m (30 m in low quality), with 15%
-hysteresis to prevent flickering between levels near the threshold. Both levels
-preserve the same main branches and foliage cluster locations.
-
-Only the 280-triangle root mesh is copied per tree. Its vertices are fitted by
-raycasting against the island; roots over a broken edge curl downward. Trunks
-and needles share geometry/materials across clones. Trees and their islands
-retain synchronized bobbing. Tree design uses a separate seeded random stream,
-so loading the asset or falling back does not change island placement. Segment
-disposal releases fitted roots while preserving the shared prototypes.
-
-## Original Blender floating islands
-
-`gallery-islands.glb` contains three original MIT-licensed layered limestone
-islands using the CC0 Rock035 color and normal images. The 512 px maps tile at
-1.6 m in source space; island scaling also scales the grain. Broad top shelves
-support the fitted pine roots, and hanging roots raycast onto the tapered base.
-
-```sh
-blender -b --python scripts/build-gallery-islands.py
-```
-
-Editable sources, studio scene, and `islands-preview.png` are in `assets/blender/`.
-Preserve `island-N-near` and `island-N-far` names (N=1,2,3). The 450 KiB meshopt
-GLB has one shared material; each variant uses 2,046 near or 638 far triangles.
-Detail switches at 70 m (35 m in low quality) with 15% hysteresis. Terrain fitting
-always samples the near mesh so attachments do not change with camera distance.
-Clones share all island geometry/materials, which segment disposal preserves.
-The original scans remain on the horizon and serve as load-failure fallbacks.
-
-## Frame inlays and prop material refinement
-
-`gallery-frame-corner.glb` is an original MIT-licensed brass leaf-and-diamond
-inlay, built by `scripts/build-gallery-assets.py` alongside the lantern and
-plinth. Its editable source is `assets/blender/gallery-frame-corner.blend`.
-The 29 KiB kit uses one material and 644 triangles. Four shared clones add
-2,576 triangles and four draw calls per photo frame. Inlays follow the corners
-when photo dimensions arrive; their leaves run along the molding outside the
-image. If loading fails, the molded frame remains without inlays.
-
-The runtime molding keeps its existing dimensions and adds vertex shading for
-darker grooves and lightly worn edges. A separate frame material reduces
-metalness and environment reflections while retaining the shared roughness map.
-Lantern/plinth bronze and brass now use roughness .48/.46 and exported vertex
-colors for sheltered-face patina. Stone UVs use the same 1.6 m scale as the
-architecture. No extra textures or lights are added. Rebuild with:
+To rebuild the unchanged lantern, plinth, and frame-inlay assets:
 
 ```sh
 blender -b --python scripts/build-gallery-assets.py
 ```
 
-The updated studio scene and `props-preview.png` show the refined prop materials.
-`frames-gallery-preview.png` records the inlays in the gallery at low quality.
-Lantern and plinth remain four and three material groups respectively, with
-15,704 and 9,048 triangles; their GLBs are approximately 787 and 542 KiB.
+The review stretch is `?auto&s=140` (roughly 128–160 m), with
+`?auto&s=40&yaw=35` providing a second view of the islands and lanterns.
+Review both at default quality and with `&quality=low`. See `VISUAL-FIDELITY.md`
+for validation, measured asset budgets, and limitations.

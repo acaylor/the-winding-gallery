@@ -1,81 +1,101 @@
-"""Build original layered floating islands with Blender 5.2+."""
-import math
+"""Build three fractured limestone masses with shared surfaces and cheap LODs."""
+import random
+import runpy
 from pathlib import Path
 import bpy
 from mathutils import Vector
+
 ROOT = Path(__file__).resolve().parents[1]
 OUT, SOURCE = ROOT/'public/assets', ROOT/'assets/blender'
+stone = runpy.run_path(str(ROOT/'scripts/gallery-stone.py'))
 bpy.ops.object.select_all(action='SELECT')
 bpy.ops.object.delete(use_global=False)
 bpy.context.preferences.filepaths.save_version = 0
-mat = bpy.data.materials.new('Layered weathered limestone')
-mat.use_nodes = True
-nodes, links = mat.node_tree.nodes, mat.node_tree.links
-p = nodes.get('Principled BSDF')
-p.inputs['Roughness'].default_value = .94
-for filename, socket in [('rock-color.jpg','Base Color'),('rock-normal.jpg','Normal')]:
-    tex = nodes.new('ShaderNodeTexImage')
-    tex.image = bpy.data.images.load(str(OUT/filename))
-    output = tex.outputs['Color']
-    if socket == 'Normal':
-        tex.image.colorspace_settings.name = 'Non-Color'
-        normal = nodes.new('ShaderNodeNormalMap')
-        normal.inputs['Strength'].default_value = .65
-        links.new(output, normal.inputs['Color'])
-        output = normal.outputs['Normal']
-    links.new(output,p.inputs[socket])
-# Ring pairs cut horizontal ledges into continuous, closed cliff geometry.
-profile = [(0,.08),(.25,.24),(.65,.38),(1,.49),(1.10,.61),(1.18,.53),
- (1.50,.66),(1.62,.81),(1.70,.73),(2.02,.84),(2.14,1),
- (2.22,.91),(2.52,1.03),(2.62,.97),(2.73,.75),(2.81,.42)]
-objects=[]
-for variant in range(1,4):
-    for detail, sides in [('near',64),('far',20)]:
-        verts, faces = [], []
-        for ring,(z,r) in enumerate(profile):
-            for i in range(sides):
-                a=2*math.pi*i/sides
-                outline=1+.10*math.sin(3*a+variant)+.065*math.cos(5*a-variant)
-                # Same analytic silhouette at both detail levels.
-                radius=2*r*outline*(1+.025*math.sin(11*a+ring*.7))
-                x=radius*math.cos(a)+(2.8-z)*(.10 if variant==1 else -.13)
-                y=radius*math.sin(a)*(1 if variant==1 else .72 if variant==2 else 1.14)
-                height=z+.045*math.sin(4*a+variant)*min(r*3,1)
-                verts.append((x,y,height))
-        for ring in range(len(profile)-1):
-            for i in range(sides):
-                j=(i+1)%sides
-                faces.append((ring*sides+i,ring*sides+j,(ring+1)*sides+j,(ring+1)*sides+i))
-        faces.append(tuple(reversed(range(sides))))
-        # Slightly domed planting shelf, free of deep cracks at the trunk seat.
-        center=len(verts); verts.append((0,0,2.86))
-        for i in range(sides):
-            faces.append(((len(profile)-1)*sides+i,(len(profile)-1)*sides+(i+1)%sides,center))
-        mesh=bpy.data.meshes.new(f'island-{variant}-{detail}')
-        mesh.from_pydata(verts,[],faces); mesh.update()
-        uv=mesh.uv_layers.new(name='Stone 1.6m')
-        for face in mesh.polygons:
-            axis=max(range(3),key=lambda k:abs(face.normal[k]))
-            axes=[k for k in range(3) if k!=axis]
-            for loop in face.loop_indices:
-                v=mesh.vertices[mesh.loops[loop].vertex_index].co
-                uv.data[loop].uv=(v[axes[0]]/1.6,v[axes[1]]/1.6)
-        obj=bpy.data.objects.new(mesh.name,mesh)
-        bpy.context.collection.objects.link(obj); mesh.materials.append(mat)
-        objects.append(obj)
-bpy.ops.export_scene.gltf(filepath=str(OUT/'gallery-islands.glb'),export_format='GLB',export_yup=True,export_meshopt_compression_enable=True)
+mat = stone['limestone'](.48)
+
+# Individual footprints, shear directions and fractures: a broad mesa,
+# a wind-cut prow and a squat buttress. No shared concentric ledge profile.
+DESIGNS = [
+    ([(-1.8,-.8),(-.6,-1.5),(.7,-1.35),(1.9,-.6),(1.45,.1),(1.85,.8),(.65,1.35),(-.7,1.1),(-1.95,.4)],
+     [(0,.24),(.48,.49),(1.05,.80),(1.62,.94),(2.16,1.03),(2.63,.91)], (.48,-.24)),
+    ([(-2.1,-.55),(-1.35,-1.0),(.25,-.83),(2.25,-.30),(1.45,.55),(.35,.90),(-.8,.65),(-1.65,.8)],
+     [(0,.34),(.76,.57),(1.16,.74),(1.86,.79),(2.27,1.05),(2.66,.95)], (-.75,.1)),
+    ([(-1.6,-1.2),(-.2,-1.0),(.55,-1.5),(1.6,-.55),(1.7,.65),(.55,1.5),(-.4,.95),(-1.65,.55)],
+     [(0,.43),(.43,.70),(1.08,.88),(1.43,.81),(2.10,1.0),(2.58,.90)], (.2,.48)),
+]
+
+
+def crag(variant, footprint, profile, shear):
+    rng = random.Random(481 + variant)
+    n = len(footprint)
+    verts, faces = [], []
+    fault = [rng.uniform(-.16, .16) for _ in footprint]
+    for level, (z, radius) in enumerate(profile):
+        t = z / profile[-1][0]
+        for i, (x, y) in enumerate(footprint):
+            wear = rng.uniform(-.07,.07)
+            lift = .14*x + .07*y + fault[i] + rng.uniform(-.075,.075)
+            verts.append((x*(radius+wear)+shear[0]*(1-t),
+                          y*(radius+wear)+shear[1]*(1-t), z+lift))
+    for level in range(len(profile)-1):
+        for i in range(n):
+            j = (i+1)%n
+            faces.append((level*n+i, level*n+j, (level+1)*n+j, (level+1)*n+i))
+    faces.append(tuple(reversed(range(n))))
+    center = len(verts)
+    verts.append((0,0,profile[-1][0]+.04))
+    for i in range(n):
+        faces.append(((len(profile)-1)*n+i,(len(profile)-1)*n+(i+1)%n,center))
+    mesh = bpy.data.meshes.new(f'Crag {variant}')
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new(f'island-{variant}-near', mesh)
+    bpy.context.collection.objects.link(obj)
+    mesh.materials.append(mat)
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bevel = obj.modifiers.new('Chipped fracture edges', 'BEVEL')
+    bevel.width = .045
+    bevel.segments = 2
+    bpy.ops.object.modifier_apply(modifier=bevel.name)
+    stone['stone_uvs'](obj, (variant*.37, variant*.61))
+    for face in obj.data.polygons:
+        face.use_smooth = True
+    normal = obj.modifiers.new('Preserve broad rock planes', 'WEIGHTED_NORMAL')
+    normal.keep_sharp = True
+    bpy.ops.object.modifier_apply(modifier=normal.name)
+    obj.select_set(False)
+    far = obj.copy()
+    far.data = obj.data.copy()
+    far.name = f'island-{variant}-far'
+    bpy.context.collection.objects.link(far)
+    bpy.context.view_layer.objects.active = far
+    decimate = far.modifiers.new('Distant silhouette', 'DECIMATE')
+    decimate.ratio = .28
+    bpy.ops.object.modifier_apply(modifier=decimate.name)
+    return obj, far
+
+
+objects = []
+for variant, design in enumerate(DESIGNS, 1):
+    objects.extend(crag(variant, *design))
+bpy.ops.object.select_all(action='SELECT')
+bpy.ops.export_scene.gltf(filepath=str(OUT/'gallery-islands.glb'), export_format='GLB',
+                          export_yup=True, export_meshopt_compression_enable=True)
 for o in objects:
-    o.location.x=(int(o.name.split('-')[1])-2)*5.3
-    o.hide_render=o.name.endswith('far'); o.hide_set(o.hide_render)
+    o.location.x = (int(o.name.split('-')[1])-2)*5.5
+    o.hide_render = o.name.endswith('far')
+    o.hide_set(o.hide_render)
 bpy.ops.file.pack_all()
 bpy.ops.wm.save_as_mainfile(filepath=str(SOURCE/'gallery-islands.blend'))
-scene=bpy.context.scene
-scene.world.use_nodes=True
-scene.world.node_tree.nodes['Background'].inputs[0].default_value=(.10,.14,.20,1)
-scene.world.node_tree.nodes['Background'].inputs[1].default_value=.45
+scene = bpy.context.scene
+scene.world.use_nodes = True
+scene.world.node_tree.nodes['Background'].inputs[0].default_value = (.10,.14,.20,1)
+scene.world.node_tree.nodes['Background'].inputs[1].default_value = .35
 for loc,power,color in [((1,-8,10),2300,(1,.80,.60)),((-6,4,7),2600,(.5,.7,1))]:
     bpy.ops.object.light_add(type='AREA',location=loc)
-    o=bpy.context.object; o.data.energy=power; o.data.color=color; o.data.shape='DISK'; o.data.size=7
+    o=bpy.context.object
+    o.data.energy=power; o.data.color=color; o.data.shape='DISK'; o.data.size=7
     o.rotation_euler=(Vector((0,0,1.4))-o.location).to_track_quat('-Z','Y').to_euler()
 bpy.ops.object.camera_add(location=(8,-20,8))
 scene.camera=bpy.context.object

@@ -10,6 +10,17 @@ whatever stands in **Unreleased**.
 
 ## [Unreleased]
 
+### Changed
+
+- Rebuilt the island silhouettes and pine crowns, added a shared limestone
+  color/roughness surface, and connected the arch and waygate foundations to
+  the causeway. Continuous instanced flagstone courses replace loose shoulder
+  slabs; stone alignment stays upright on sloping bends.
+- Retuned moonlight, contact occlusion, bloom, and vignette; removed film grain
+  that obscured dark surfaces. Lantern flicker now preserves halo opacity.
+- Nearby islands cast shadows; frame corner inlays use one instance batch per
+  photo instead of four draw calls. Asset fallbacks and low quality remain.
+
 ### Added
 
 - Small Blender brass corner inlays that follow photo sizing, with shaded frame

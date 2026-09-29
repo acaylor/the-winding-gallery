@@ -5,6 +5,7 @@ app y=4, z=+/-0.52. Gate flames remain at x=+/-3.5, y=4.19.
 """
 import math
 import random
+import runpy
 from pathlib import Path
 import bpy
 from mathutils import Vector
@@ -29,19 +30,8 @@ def material(name, color, metal=0, rough=.85):
     return m
 
 
-stone = material('Weathered blue limestone', (.28, .32, .34))
-p = stone.node_tree.nodes.get('Principled BSDF')
-for filename, socket in [('rock-color.jpg', 'Base Color'), ('rock-normal.jpg', 'Normal')]:
-    tex = stone.node_tree.nodes.new('ShaderNodeTexImage')
-    tex.image = bpy.data.images.load(str(OUT / filename))
-    output = tex.outputs['Color']
-    if socket == 'Normal':
-        tex.image.colorspace_settings.name = 'Non-Color'
-        normal = stone.node_tree.nodes.new('ShaderNodeNormalMap')
-        normal.inputs['Strength'].default_value = .4
-        stone.node_tree.links.new(output, normal.inputs['Color'])
-        output = normal.outputs['Normal']
-    stone.node_tree.links.new(output, p.inputs[socket])
+stone_tools = runpy.run_path(str(ROOT/'scripts/gallery-stone.py'))
+stone = stone_tools['limestone'](.3)
 slate = material('Recessed slate', (.055, .085, .095))
 brass = material('Worn champagne brass', (.53, .32, .12), .78, .4)
 
@@ -56,16 +46,8 @@ def finish(o, name, mat, bevel):
         mod.width = bevel
         mod.segments = 2
         bpy.ops.object.modifier_apply(modifier=mod.name)
-    # World-scale planar UVs, including bevel faces, rather than stretched cube UVs.
-    while o.data.uv_layers:
-        o.data.uv_layers.remove(o.data.uv_layers[0])
-    uv = o.data.uv_layers.new(name='Stone meters')
+    stone_tools['stone_uvs'](o, (o.location.x/1.6, o.location.z/1.6))
     for face in o.data.polygons:
-        axis = max(range(3), key=lambda i: abs(face.normal[i]))
-        axes = [i for i in range(3) if i != axis]
-        for loop in face.loop_indices:
-            v = o.matrix_world @ o.data.vertices[o.data.loops[loop].vertex_index].co
-            uv.data[loop].uv = (v[axes[0]] / 1.6, v[axes[1]] / 1.6)
         face.use_smooth = True
     mod = o.modifiers.new('Stone face normals', 'WEIGHTED_NORMAL')
     mod.keep_sharp = True
@@ -86,6 +68,14 @@ def diamond(x, y, z, size=.13):
 
 
 def pillar(x, height, width):
+    # Corbelled foundations key into the causeway instead of floating beside it.
+    side = 1 if x > 0 else -1
+    inner = 2.50
+    outer = abs(x) + width/2 + .22
+    for level in range(3):
+        reach = outer - level*.28
+        box('Causeway corbel', (side*(inner+reach)/2, 0, -.13-level*.26),
+            (reach-inner, 1.42-level*.12, .28), bevel=.045)
     box('Foundation', (x, 0, .12), (width+.3, 1.15, .24))
     box('Sloped foot course', (x, 0, .30), (width+.14, 1.0, .12))
     count = max(2, round((height-.6)/.48))

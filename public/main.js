@@ -73,6 +73,16 @@ function pathFrame(s, pos, tan, side) {
   side.set(-tan.z, 0, tan.x).normalize(); // right of travel, kept level
 }
 
+// A full basis keeps paving upright even when the path points almost -Z.
+// A shortest-arc quaternion from +Z can roll the stone on sloping bends.
+const pathBasis = new THREE.Matrix4();
+const pathUp = new THREE.Vector3(), pathBack = new THREE.Vector3();
+function alignToPath(rotation, tangent, side) {
+  pathBack.copy(tangent).negate();
+  pathUp.crossVectors(pathBack, side).normalize();
+  return rotation.setFromRotationMatrix(pathBasis.makeBasis(side, pathUp, pathBack));
+}
+
 // ───────────────────────────────────────── renderer & scene ──
 // ?quality=low keeps the pre-0.4 pipeline: no bloom, no shadows, no mist
 const query = new URLSearchParams(location.search);
@@ -108,7 +118,6 @@ const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 25
 // post: bloom so the flames, moon and wisp genuinely glow (tone mapping
 // moves into the OutputPass; the multisampled HDR target keeps the AA)
 let composer = null;
-let gradePass = null;
 if (!LOW_FX) {
   const rt = new THREE.WebGLRenderTarget(innerWidth, innerHeight, {
     type: THREE.HalfFloatType, samples: 4,
@@ -119,8 +128,8 @@ if (!LOW_FX) {
   // ground-truth ambient occlusion: corners, seams and contact points
   // darken the way night stone should (before bloom, so glows stay clean)
   const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
-  gtao.updateGtaoMaterial({ radius: 0.7, thickness: 1.2, scale: 1.1 });
-  gtao.blendIntensity = 0.85;
+  gtao.updateGtaoMaterial({ radius: 0.45, thickness: 0.8, scale: 1.0 });
+  gtao.blendIntensity = 0.65;
   // the stock pass keeps only points and lines out of its depth/normal
   // pre-pass; here glows, aurora, mist and the photos themselves are
   // transparent or unlit quads, and rendered opaque they poison the
@@ -147,18 +156,13 @@ if (!LOW_FX) {
   // moon, the keeper's wisp, fireflies — cross it and bloom. Photographs and
   // gold-frame speculars stay crisp instead of washing into halos.
   composer.addPass(new UnrealBloomPass(
-    new THREE.Vector2(innerWidth, innerHeight), 0.32, 0.4, 1.1));
-  // a single cheap final pass: a soft vignette to settle the eye toward
-  // the path, and fine animated film grain to break up the smooth night
-  // gradients. Both are meant to be felt, not seen. Runs before the
-  // OutputPass so the tone-map still has the last word.
-  gradePass = new ShaderPass({
+    new THREE.Vector2(innerWidth, innerHeight), 0.22, 0.3, 1.1));
+  // A restrained vignette. Keep dark stone clean: linear HDR grain was
+  // amplified by the output transform and obscured the surface detail.
+  const gradePass = new ShaderPass({
     uniforms: {
       tDiffuse: { value: null },
-      uTime: { value: 0 },
-      uResolution: { value: new THREE.Vector2(innerWidth, innerHeight) },
-      uVignette: { value: 0.34 },
-      uGrain: { value: 0.02 },
+      uVignette: { value: 0.22 },
     },
     vertexShader: `
       varying vec2 vUv;
@@ -168,18 +172,13 @@ if (!LOW_FX) {
       }`,
     fragmentShader: `
       uniform sampler2D tDiffuse;
-      uniform float uTime, uVignette, uGrain;
-      uniform vec2 uResolution;
+      uniform float uVignette;
       varying vec2 vUv;
-      float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       void main() {
         vec4 c = texture2D(tDiffuse, vUv);
         vec2 q = vUv - 0.5;
         float vig = 1.0 - uVignette * dot(q, q) * 2.1;
         c.rgb *= vig;
-        // luminance-matched grain, re-seeded each frame so it shimmers
-        float g = hash(vUv * uResolution + fract(uTime) * vec2(37.0, 17.0)) - 0.5;
-        c.rgb += g * uGrain;
         gl_FragColor = c;
       }`,
   });
@@ -192,8 +191,8 @@ const MOON_DIR = new THREE.Vector3(-0.4, 0.8, -0.5).normalize();
 // moon-blue rather than black — dark, but its texture legible. The
 // lantern pools (point lights, intensity 9–26) still dominate by a wide
 // margin, so the night is kept.
-scene.add(new THREE.HemisphereLight(0x5d6c9c, 0x373049, 1.5));
-const moonLight = new THREE.DirectionalLight(0x9fb2ec, 1.55);
+scene.add(new THREE.HemisphereLight(0x8491b3, 0x45414b, 1.15));
+const moonLight = new THREE.DirectionalLight(0xb4c6ed, 1.9);
 moonLight.position.copy(MOON_DIR);
 scene.add(moonLight, moonLight.target);
 if (!LOW_FX) {
@@ -204,14 +203,14 @@ if (!LOW_FX) {
   sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45;
   sc.near = 1; sc.far = 260;
   moonLight.shadow.bias = -0.0004;
-  moonLight.shadow.normalBias = 0.35;
+  moonLight.shadow.normalBias = 0.08;
 }
 
 // a cool fill from the moonless side, raised so off-path silhouettes keep
 // their shape and gain a legible moon-blue edge against the sky instead
 // of collapsing to black. Lifted a touch overhead so it catches the top
 // arris of curbs, arches and posts.
-const rimLight = new THREE.DirectionalLight(0x6f83c8, 1.0);
+const rimLight = new THREE.DirectionalLight(0x8598bc, 0.65);
 rimLight.position.set(0.55, 0.45, 0.6);
 scene.add(rimLight);
 
@@ -288,7 +287,8 @@ const skyMat = new THREE.ShaderMaterial({
       float neb2 = smoothstep(0.55, 0.9, fbm(dir.xz * 1.5 - 21.0)) * smoothstep(0.06, 0.42, h);
       col += vec3(0.018, 0.05, 0.08) * neb2 * 0.45;
       // dither, or the long gradients ribbon into visible bands
-      col += (hash(gl_FragCoord.xy) - 0.5) / 160.0;
+      col *= .78;
+      col += (hash(gl_FragCoord.xy) - 0.5) / 1024.0;
       gl_FragColor = vec4(col, 1.0);
     }`,
 });
@@ -439,6 +439,8 @@ const pavingNormal = surface('/assets/paving-normal.jpg');
 const pavingAO = surface('/assets/paving-ao.jpg');
 const pavingRough = surface('/assets/paving-rough.jpg');
 const rockColor = surface('/assets/rock-color.jpg', { srgb: true });
+const limestoneColor = surface('/assets/limestone-color.png', { srgb: true });
+const limestoneRough = surface('/assets/limestone-roughness.png');
 const rockNormal = surface('/assets/rock-normal.jpg');
 const rockAO = surface('/assets/rock-ao.jpg');
 const barkColor = surface('/assets/bark-color.jpg', { srgb: true });
@@ -479,7 +481,8 @@ const stoneDarkMat = new THREE.MeshStandardMaterial({
   color: 0x7d8298, roughness: 1,
 });
 const skirtMat = new THREE.MeshStandardMaterial({
-  map: rockColor, normalMap: rockNormal, color: 0x6a6e84, roughness: 1, side: THREE.DoubleSide,
+  map: limestoneColor, normalMap: rockNormal, roughnessMap: limestoneRough,
+  color: 0x92908c, roughness: 1, side: THREE.DoubleSide,
 });
 const barkMat = new THREE.MeshStandardMaterial({
   map: barkColor, normalMap: barkNormal, roughness: 1,
@@ -1304,7 +1307,24 @@ async function loadGalleryProps() {
     load('keeper-lantern'), load('gallery-plinth'),
     load('gallery-arch'), load('gallery-waygate'), load('gallery-paving'), load('gallery-pines'), load('gallery-frame-corner'),
   ]);
+  if (frameCornerProto) {
+    frameCornerProto.updateMatrixWorld(true);
+    const part = frameCornerProto.getObjectByProperty('isMesh', true);
+    if (part) {
+      const geometry = part.geometry.clone().applyMatrix4(part.matrixWorld);
+      part.geometry.dispose();
+      frameCornerProto = new THREE.Mesh(geometry, part.material);
+    } else frameCornerProto = null;
+  }
   if (pavingKit) {
+    // The modeled flags supply the whole walking surface. The ribbon becomes
+    // recessed mortar; if the kit fails, the original textured paving remains.
+    floorMat.map = limestoneColor;
+    floorMat.normalMap = rockNormal;
+    floorMat.aoMap = rockAO;
+    floorMat.roughnessMap = limestoneRough;
+    floorMat.color.setHex(0x58524a);
+    floorMat.needsUpdate = true;
     pavingKit.updateMatrixWorld(true);
     pavingKit.traverse((o) => {
       if (!o.isMesh) return;
@@ -1594,17 +1614,17 @@ function buildSegment(idx) {
     const eul = new THREE.Euler(), tint = new THREE.Color();
     for (let sideSign = -1; sideSign <= 1; sideSign += 2) {
       for (let j = 0; j < per; j++) {
-        if (rand() < 0.18) continue; // gaps — the gallery is old
-        const s = s0 + j * 1.6 + 0.2 + rand() * 0.35;
+        if (rand() < 0.06) continue; // occasional lost edge stone
+        const s = s0 + j * 1.6 + 0.78 + rand() * 0.04;
         pathFrame(s, _pos, _tan, _side);
         const lat = sideSign * (PATH_W / 2 + 0.08 + rand() * 0.16);
         // sunk into the deck, not floated above it
         _p0.set(_pos.x + _side.x * lat, _pos.y + 0.04 + rand() * 0.07, _pos.z + _side.z * lat);
-        q.setFromUnitVectors(new THREE.Vector3(0, 0, 1), _tan);
+        alignToPath(q, _tan, _side);
         // settled, not placed: every stone leans a little differently
-        eul.set((rand() - 0.5) * 0.14, (rand() - 0.5) * 0.22, (rand() - 0.5) * 0.16);
+        eul.set((rand() - 0.5) * 0.035, (rand() - 0.5) * 0.04, (rand() - 0.5) * 0.04);
         q.multiply(qt.setFromEuler(eul));
-        sc.set(0.85 + rand() * 0.25, 0.85 + rand() * 0.3, 0.85 + rand() * 0.2);
+        sc.set(.97 + rand() * .06, .95 + rand() * .10, .98 + rand() * .04);
         _m.compose(_p0, q, sc);
         const inst = batches[mod(idx + j + (sideSign > 0 ? 1 : 0), batches.length)];
         inst.setMatrixAt(inst.count, _m);
@@ -1619,32 +1639,44 @@ function buildSegment(idx) {
     }
   }
 
-  // — shallow replacement flags near the shoulders, with a clear central lane —
+  // — fitted flagstone courses over a recessed mortar bed —
   if (flagstoneProtos.length) {
-    // Independent seed: adding paving never moves photographs, trees, or lanterns.
     const pavingRand = seededRand(idx * 104729 + 37);
-    const q = new THREE.Quaternion(), turn = new THREE.Quaternion();
-    const scale = new THREE.Vector3(), tint = new THREE.Color();
-    const forward = new THREE.Vector3(0, 0, 1), up = new THREE.Vector3(0, 1, 0);
-    for (let variant = 0; variant < flagstoneProtos.length; variant++) {
-      const { geometry, material } = flagstoneProtos[variant];
-      const inst = new THREE.InstancedMesh(geometry, material, 6);
-      inst.castShadow = inst.receiveShadow = true;
-      for (let j = 0; j < 6; j++) {
-        const side = j % 2 ? 1 : -1;
-        const s = s0 + 1.8 + Math.floor(j / 2) * 4.5 + variant * 1.5 + pavingRand() * .35;
-        pathFrame(s, _pos, _tan, _side);
-        const lat = side * (1.85 + pavingRand() * .15);
-        const crown = .05 * (1 - (lat / (PATH_W / 2)) ** 2);
-        // A 14 cm slab is mostly embedded: only its top few cm stand above the ribbon.
-        _p0.set(_pos.x + _side.x * lat, _pos.y + crown - .015, _pos.z + _side.z * lat);
-        q.setFromUnitVectors(forward, _tan);
-        q.multiply(turn.setFromAxisAngle(up, (pavingRand() - .5) * .18));
-        scale.set(.9 + pavingRand() * .12, 1, .9 + pavingRand() * .12);
+    const columns = 6, rows = SEG_LEN, cellWidth = PATH_W / columns;
+    const q = new THREE.Quaternion(), scale = new THREE.Vector3(), tint = new THREE.Color();
+    const batches = flagstoneProtos.map(({ geometry, material }) => {
+      const mesh = new THREE.InstancedMesh(geometry, material, columns * rows);
+      mesh.name = 'fitted-flagstones';
+      mesh.receiveShadow = true;
+      // Millimetre joints get contact from AO; do not redraw the whole deck
+      // into every point-light shadow cube for a barely perceptible benefit.
+      mesh.count = 0;
+      return mesh;
+    });
+    for (let row = 0; row < rows; row++) {
+      const s = s0 + row + .5;
+      pathFrame(s, _pos, _tan, _side);
+      alignToPath(q, _tan, _side);
+      for (let col = 0; col < columns; col++) {
+        // Offset cross-joints between courses without breaking the edges.
+        const shift = row % 2 ? .16 : -.16;
+        const left = -PATH_W/2 + col*cellWidth + (col ? shift : 0);
+        const right = -PATH_W/2 + (col+1)*cellWidth + (col < columns-1 ? shift : 0);
+        const lat = (left + right)/2;
+        const crown = .05 * (1 - (lat/(PATH_W/2))**2);
+        _p0.set(_pos.x + _side.x*lat, _pos.y + crown - .005, _pos.z + _side.z*lat);
+        // The centre lane is worn smoother and lighter, in broad patches.
+        const wear = 1 - Math.abs(lat)/(PATH_W/2);
+        scale.set((right-left-.025)/.9, 1, 1);
         _m.compose(_p0, q, scale);
-        inst.setMatrixAt(j, _m);
-        inst.setColorAt(j, tint.setScalar(.95 + pavingRand() * .16));
+        const inst = batches[(row+col+idx) % batches.length];
+        inst.setMatrixAt(inst.count, _m);
+        tint.setRGB(.80 + wear*.13, .79 + wear*.12, .75 + wear*.11);
+        tint.multiplyScalar(.91 + pavingRand()*.18);
+        inst.setColorAt(inst.count++, tint);
       }
+    }
+    for (const inst of batches) {
       group.add(inst);
       seg.disposables.push(inst);
     }
@@ -1663,7 +1695,7 @@ function buildSegment(idx) {
     const s = s0 + 4 + rand() * 8;
     pathFrame(s, _pos, _tan, _side);
     const lat = (rand() - 0.5) * 2.5;
-    m.position.set(_pos.x + _side.x * lat, _pos.y + 0.05, _pos.z + _side.z * lat);
+    m.position.set(_pos.x + _side.x * lat, _pos.y + 0.12, _pos.z + _side.z * lat);
     m.rotation.x = -Math.PI / 2;
     m.rotation.z = rand() * Math.PI * 2;
     group.add(m);
@@ -1727,15 +1759,13 @@ function buildSegment(idx) {
     frameGroup.add(border);
     seg.disposables.push(border.geometry);
 
-    const corners = [];
+    let corners = null;
     if (frameCornerProto) {
-      for (const [sx, sy] of [[1,1],[-1,1],[-1,-1],[1,-1]]) {
-        const corner = frameCornerProto.clone(true);
-        corner.name = 'frame-corner';
-        corner.scale.set(sx, sy, 1);
-        frameGroup.add(corner);
-        corners.push({corner, sx, sy});
-      }
+      corners = new THREE.InstancedMesh(frameCornerProto.geometry, frameCornerProto.material, 4);
+      corners.name = 'frame-corners';
+      corners.castShadow = corners.receiveShadow = true;
+      frameGroup.add(corners);
+      seg.disposables.push(corners);
     }
 
     // a soft magical glow behind the plate (a plane, so it never
@@ -1762,7 +1792,18 @@ function buildSegment(idx) {
       const k = Math.min(maxW / w, maxH / h);
       const W = w * k, H = h * k;
       photoMesh.scale.set(W, H, 1);
-      for (const {corner, sx, sy} of corners) corner.position.set(sx*W/2, sy*H/2, -.02);
+      if (corners) {
+        const rotation = new THREE.Quaternion(), position = new THREE.Vector3();
+        const unit = new THREE.Vector3(1, 1, 1), axis = new THREE.Vector3(0, 0, 1);
+        [[1,1],[-1,1],[-1,-1],[1,-1]].forEach(([sx, sy], i) => {
+          position.set(sx*W/2, sy*H/2, -.02);
+          // Rotate the symmetric inlay; negative instance scales break culling.
+          rotation.setFromAxisAngle(axis, Math.atan2(sy, sx) - Math.PI/4);
+          corners.setMatrixAt(i, _m.compose(position, rotation, unit));
+        });
+        corners.instanceMatrix.needsUpdate = true;
+        corners.computeBoundingSphere();
+      }
       const g = border.geometry;
       border.geometry = moldedFrameGeometry(W, H);
       seg.disposables[seg.disposables.indexOf(g)] = border.geometry;
@@ -1836,12 +1877,12 @@ function buildSegment(idx) {
       opacity: LOW_FX ? 0.75 : 0.38,
       blending: THREE.AdditiveBlending, depthWrite: false,
     }));
-    glow.scale.setScalar(2.6);
+    glow.scale.setScalar(LOW_FX ? 2.0 : 1.6);
     glow.position.set(headX, headY, 0);
     lantern.add(glow);
     seg.disposables.push(glow.material);
     const phase = rand() * 9;
-    seg.bobbers.push({ obj: glow, base: headY, amp: 0, flick: glow.material, phase });
+    seg.bobbers.push({ obj: glow, base: headY, amp: 0, flick: glow.material, opacity: glow.material.opacity, phase });
     // where a real light may burn, if this lantern is among the nearest
     seg.lamps.push({
       x: lantern.position.x + Math.cos(lantern.rotation.y) * headX,
@@ -1890,7 +1931,7 @@ function buildSegment(idx) {
       group.add(flame);
       seg.disposables.push(flame.material);
       const phase = rand() * 9;
-      seg.bobbers.push({ obj: flame, base: flame.position.y, amp: 0, flick: flame.material, phase });
+      seg.bobbers.push({ obj: flame, base: flame.position.y, amp: 0, flick: flame.material, opacity: flame.material.opacity, phase });
       seg.lamps.push({ x: flame.position.x, y: flame.position.y, z: flame.position.z, phase });
     }
     if (!waygateProto) {
@@ -1969,6 +2010,7 @@ function buildSegment(idx) {
           for (const [geometry, distance] of [[proto.near, 0], [proto.far, LOW_FX ? 35 : 70]]) {
             const mesh = new THREE.Mesh(geometry, proto.material);
             mesh.receiveShadow = true;
+            mesh.castShadow = !LOW_FX && distance === 0;
             rock.addLevel(mesh, distance, .15);
           }
         } else rock = new THREE.Mesh(proto.geometry, proto.material);
@@ -2608,7 +2650,6 @@ addEventListener('resize', () => {
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
   composer?.setSize(innerWidth, innerHeight);
-  gradePass?.uniforms.uResolution.value.set(innerWidth, innerHeight);
 });
 
 // ───────────────────────────────────────── the Wayfarer's Map ──
@@ -2946,14 +2987,14 @@ function animate() {
   for (const seg of segments.values()) {
     for (const b of seg.bobbers) {
       if (b.amp > 0) b.obj.position.y = b.base + Math.sin(t * 0.5 + b.phase) * b.amp;
-      if (b.flick) b.flick.opacity = 0.6 + 0.22 * Math.sin(t * 7 + b.phase) * Math.sin(t * 3.1 + b.phase * 2);
+      if (b.flick) b.flick.opacity = b.opacity * (1 + 0.12 * Math.sin(t * 7 + b.phase) * Math.sin(t * 3.1 + b.phase * 2));
     }
   }
 
   // walker's lantern-light drifts just ahead, flickering gently
   pathFrame(player.s + 3, _pos, _tan, _side);
   walkerLight.position.set(_pos.x, _pos.y + 2.4, _pos.z);
-  walkerLight.intensity = 18 + Math.sin(t * 9.3) * 2.2 + Math.sin(t * 23.7) * 1.3;
+  walkerLight.intensity = 12 + Math.sin(t * 9.3) * .6 + Math.sin(t * 23.7) * .3;
 
   // the moon's shadow frustum travels with the walker
   if (moonLight.castShadow) {
@@ -2971,7 +3012,6 @@ function animate() {
   skyGroup.position.copy(camera.position);
   skyGroup.userData.starMat.uniforms.uTime.value = t;
   ffMat.uniforms.uTime.value = t;
-  if (gradePass) gradePass.uniforms.uTime.value = t;
 
   hoverTick += dt;
   if (hoverTick > 0.08) { hoverTick = 0; updateHover(); updateWing(); }

@@ -36,7 +36,7 @@ for filename, socket in [('bark-color.jpg', 'Base Color'), ('bark-normal.jpg', '
     if socket == 'Normal':
         tex.image.colorspace_settings.name = 'Non-Color'
         normal = bark.node_tree.nodes.new('ShaderNodeNormalMap')
-        normal.inputs['Strength'].default_value = .45
+        normal.inputs['Strength'].default_value = .8
         bark.node_tree.links.new(output, normal.inputs['Color'])
         output = normal.outputs['Normal']
     bark.node_tree.links.new(output, p.inputs[socket])
@@ -50,6 +50,7 @@ foliage.use_backface_culling = False
 class Mesh:
     def __init__(self):
         self.vertices, self.faces, self.uvs, self.colors = [], [], [], []
+        self.smooth_faces = set()
 
     def vertex(self, p, uv=(0, 0), color=(1, 1, 1, 1)):
         self.vertices.append(tuple(p))
@@ -66,7 +67,7 @@ class Mesh:
         for i, c in enumerate(self.colors):
             color.data[i].color = c
         for face in data.polygons:
-            face.use_smooth = mat == bark
+            face.use_smooth = mat == bark or face.index in self.smooth_faces
             for loop in face.loop_indices:
                 uv.data[loop].uv = self.uvs[data.loops[loop].vertex_index]
         o = bpy.data.objects.new(name, data)
@@ -99,10 +100,10 @@ def tube(mesh, points, radius, tip, steps=12, sides=7):
         b = tangent.cross(a).normalized()
         if i:
             distance += (p-pts[i-1]).length
-        r = radius*(1-i/steps)+tip*i/steps
+        r = (radius*(1-i/steps)+tip*i/steps) * (1 + .10*math.sin(i*2.1))
         for j in range(sides+1):
             angle = j/sides*math.tau
-            mesh.vertex(p + r*(a*math.cos(angle)+b*math.sin(angle)), (j/sides, distance/.45))
+            mesh.vertex(p + r*(a*math.cos(angle)+b*math.sin(angle)), (j/sides*max(radius*12,.5), distance/.65))
         if i:
             for j in range(sides):
                 n = start+(i-1)*(sides+1)+j
@@ -112,65 +113,99 @@ def tube(mesh, points, radius, tip, steps=12, sides=7):
 
 
 def needles(mesh, center, size, seed, low):
+    """Overlapping twig sprays, with needles growing along a directional axis.
+
+    The distant version keeps the same occupied volume with fewer wider blades.
+    Neither version uses transparency, so shadows and AO see the actual crown.
+    """
     r = random.Random(seed)
-    # An open spray of tapered needles in multiple planes. A broad center-to-tip
-    # color gradient makes the pads legible in moonlight without luminous foliage.
-    count = 20 if low else 64
+    angle = r.uniform(0, math.tau)
+    axis = Vector((math.cos(angle), math.sin(angle), r.uniform(.15,.45))).normalized()
+    across = axis.cross(Vector((0,0,1))).normalized()
+    # A dark rounded inner crown keeps foliage legible once needles become
+    # subpixel. Smooth normals and an irregular outline avoid visible flat pads.
+    start, face_start = len(mesh.vertices), len(mesh.faces)
+    sides = 4 if low else 6
+    for z in [-.065,.065]:
+        for k in range(sides):
+            a=k*math.tau/sides+.3
+            radius=.60+.08*math.sin(k*2.7+seed)
+            v=center+axis*(math.cos(a)*size*radius)+across*(math.sin(a)*size*.35)
+            v.z += z*size
+            mesh.vertex(v, color=(.012,.035,.014,1))
+    bottom=mesh.vertex(center+Vector((0,0,-.18*size)),color=(.009,.024,.01,1))
+    top=mesh.vertex(center+Vector((0,0,.18*size)),color=(.025,.060,.022,1))
+    for k in range(sides):
+        j=(k+1)%sides
+        mesh.faces.extend([(bottom,start+j,start+k),
+                           (start+k,start+j,start+sides+j,start+sides+k),
+                           (top,start+sides+k,start+sides+j)])
+    mesh.smooth_faces.update(range(face_start,len(mesh.faces)))
+    count = 6 if low else 56
     for i in range(count):
-        angle = i/count*math.tau+r.uniform(-.13,.13)
-        direction = Vector((math.cos(angle),math.sin(angle),r.uniform(-.25,.55))).normalized()
-        length = size*r.uniform(.65,1.1)
-        base = center+Vector((r.uniform(-.05,.05),r.uniform(-.05,.05),r.uniform(-.035,.035)))
-        tip = base+direction*length
-        side = direction.cross(Vector((.2,.1,1))).normalized()
-        width = size*(.10 if low else .035)
-        mid = base.lerp(tip,.35)
-        tint = r.uniform(.8,1.18)
-        dark = (.028*tint,.055*tint,.014*tint,1)
-        light = (.085*tint,.17*tint,.04*tint,1)
-        n = mesh.vertex(base, color=dark)
-        mesh.vertex(mid+side*width, color=light)
-        mesh.vertex(tip, color=light)
-        mesh.vertex(mid-side*width, color=light)
-        mesh.faces.extend([(n,n+1,n+2),(n,n+2,n+3)])
+        t = r.uniform(-.85, .85)
+        flank = -1 if i % 2 else 1
+        base = center + axis*t*size + across*r.uniform(-.22,.22)*size
+        base.z += r.uniform(-.16,.16)*size
+        direction = (axis*r.uniform(.2,.7) + across*flank*r.uniform(.4,1) +
+                     Vector((0,0,r.uniform(-.2,.9)))).normalized()
+        length = size*r.uniform(.42,.82)
+        tip = base + direction*length
+        side = direction.cross(Vector((.1,.2,1))).normalized()
+        width = size*(.13 if low else .035)
+        mid = base.lerp(tip,.45)
+        tint = r.uniform(.75,1.20)
+        dark = (.025*tint,.060*tint,.027*tint,1)
+        light = (.105*tint,.19*tint,.065*tint,1)
+        if low:
+            n = mesh.vertex(base-side*width, color=dark)
+            mesh.vertex(base+side*width, color=light)
+            mesh.vertex(tip, color=light)
+            mesh.faces.append((n,n+1,n+2))
+        else:
+            n = mesh.vertex(base, color=dark)
+            mesh.vertex(mid+side*width, color=light)
+            mesh.vertex(tip, color=light)
+            mesh.vertex(mid-side*width, color=light)
+            mesh.faces.extend([(n,n+1,n+2),(n,n+2,n+3)])
 
 
 # Branch lengths and directions intentionally differ; the third tree has a fork.
 DESIGNS = [
     ('sentinel', [(0,0,0),(-.12,.02,.8),(.10,.02,1.65),(.48,0,2.55),(.8,.08,3.35)],
-     [( .37, 2.9,1.20),(.52,-.25,1.45),(.69,1.45,1.12),(.83,.25,.95)]),
+     [(.29,2.9,1.35),(.43,-.25,1.65),(.49,1.55,1.1),(.60,3.9,1.3),(.69,1.45,1.2),(.77,-.4,1.0),(.88,2.5,.65)]),
     ('windswept', [(0,0,0),(.14,.03,.65),(.48,-.04,1.35),(1.05,0,2.0),(1.55,.05,2.65)],
-     [(.35,2.7,.82),(.48,.15,1.65),(.65,-.65,1.30),(.83,.60,1.10)]),
+     [(.26,2.7,.95),(.40,.15,1.8),(.50,1.6,1.12),(.57,-.65,1.50),(.68,3.0,.85),(.77,.60,1.25),(.88,-.5,.8)]),
     ('forked', [(0,0,0),(-.18,0,.85),(-.12,.08,1.7),(.3,.10,2.65),(.50,.1,3.5)],
-     [(.34,3.15,1.05),(.49,-.45,1.42),(.69,1.55,1.15),(.86,-.2,.9)]),
+     [(.27,3.15,1.25),(.41,-.45,1.6),(.51,1.6,1.2),(.64,3.7,1.3),(.73,1.55,1.25),(.86,-.2,.9)]),
 ]
 for variant, (label, trunk, branches) in enumerate(DESIGNS,1):
     trunk_samples = curve(trunk,100)
     for low in [False,True]:
         wood, leaf = Mesh(), Mesh()
-        tube(wood,trunk,.17,.025,steps=12 if low else 24,sides=5 if low else 9)
+        tube(wood,trunk,.22,.035,steps=10 if low else 26,sides=5 if low else 10)
         terminals = []
         for bi,(fraction,angle,length) in enumerate(branches):
             at = trunk_samples[round(fraction*100)]
             direction = Vector((math.cos(angle),math.sin(angle),0))
-            tip = at+direction*length+Vector((0,0,.15))
-            branch = [at,at+direction*length*.4+Vector((0,0,-.12)),tip]
-            tube(wood,branch,.075*(1-fraction*.5),.012,steps=5 if low else 9,sides=4 if low else 6)
+            tip = at+direction*length+Vector((0,0,.22+math.sin(bi*2.7)*.16))
+            branch = [at,at+direction*length*.32+Vector((0,0,-.20)),at+direction*length*.73+Vector((.08,-.07,-.12)),tip]
+            tube(wood,branch,.075*(1-fraction*.5),.012,steps=3 if low else 9,sides=4 if low else 6)
             for ti in range(4):
-                t = .40+ti*.19
+                t = .25+ti*.22
                 fork_at = curve(branch,100)[round(t*100)]
-                az = angle+(-1 if ti%2 else 1)*.8
-                end = fork_at+Vector((math.cos(az)*.38,math.sin(az)*.38,.17))
+                az = angle+(-1 if ti%2 else 1)*(.65+.12*math.sin(bi+ti))
+                end = fork_at+Vector((math.cos(az)*.52,math.sin(az)*.52,.12+.10*math.sin(ti)))
                 tube(wood,[fork_at,end],.018,.005,steps=1 if low else 3,sides=4)
                 for ni in range(3):
-                    terminals.append((end+Vector(((ni-1)*.14,math.sin(ni*2+bi)*.13,ni*.035)),.26 if fraction<.7 else .23))
+                    terminals.append((end+Vector(((ni-1)*.14,math.sin(ni*2+bi)*.13,ni*.035)),.34 if fraction<.7 else .29))
         # Needle-bearing crown branches are visible between the sprays.
         crown=Vector(trunk[-1])
         for ci in range(7):
             a=ci/7*math.tau
             end=crown+Vector((math.cos(a)*.40,math.sin(a)*.40,.10-abs(math.cos(a))*.1))
             tube(wood,[crown-Vector((0,0,.2)),end],.024,.006,steps=2,sides=4)
-            terminals.extend([(end,.30),(end+Vector((.13,.1,.02)),.25)])
+            terminals.extend([(end,.40),(end+Vector((.13,.1,.12)),.33)])
         if label == 'forked':
             at=trunk_samples[52]
             end=at+Vector((-1.0,.22,1.36))
@@ -179,7 +214,7 @@ for variant, (label, trunk, branches) in enumerate(DESIGNS,1):
                 a=ci/8*math.tau
                 terminals.append((end+Vector((math.cos(a)*.33,math.sin(a)*.33,0)),.28))
         for ni,(center,size) in enumerate(terminals):
-            needles(leaf,center,size*1.3,variant*1000+ni,low)
+            needles(leaf,center,size*1.15,variant*1000+ni,low)
         level='far' if low else 'near'
         wood.object(f'pine-{variant}-{level}-wood',bark)
         leaf.object(f'pine-{variant}-{level}-needles',foliage)

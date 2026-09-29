@@ -10,6 +10,41 @@ whatever stands in **Unreleased**.
 
 ## [Unreleased]
 
+### Changed
+
+- Rebuilt the island silhouettes and pine crowns, added a shared limestone
+  color/roughness surface, and connected the arch and waygate foundations to
+  the causeway. Continuous instanced flagstone courses replace loose shoulder
+  slabs; stone alignment stays upright on sloping bends.
+- Retuned moonlight, contact occlusion, bloom, and vignette; removed film grain
+  that obscured dark surfaces. Lantern flicker now preserves halo opacity.
+- Nearby islands cast shadows; frame corner inlays use one instance batch per
+  photo instead of four draw calls. Asset fallbacks and low quality remain.
+
+### Added
+
+- Small Blender brass corner inlays that follow photo sizing, with shaded frame
+  grooves and softer reflections. Lantern and plinth materials gain exported
+  patina colors, rougher metal, and consistently scaled stone textures.
+
+- Three Blender floating islands with layered cliffs, tapered undersides, tiled
+  rock textures, fitted hanging roots, and simpler distance meshes. Includes
+  editable sources and a studio preview; scanned rocks remain as fallbacks.
+
+- Three Blender mountain pine silhouettes with geometric needle sprays, simpler
+  distant versions, and roots fitted to island surfaces. Trees share compressed
+  geometry and materials, retain synchronized island motion, and fall back to
+  procedural trees if the kit cannot load.
+- A Blender paving kit with three rounded, irregular curb variants and two shallow
+  flagstones placed along the path shoulders. The kit shares one material and
+  uses instancing, with editable sources, a studio preview, and rebuild script.
+- Blender-authored stone arches and waygates with individual courses, beveled
+  edges, a raised arch keystone, and brass detailing matching the gallery props.
+  Includes editable sources, a studio preview, and a reproducible build script.
+- An asset upgrade checklist covering architecture, paving, pines, islands,
+  and frames. Waygates retain dynamic wing labels and existing lights; both
+  new models share resources and retain procedural load-failure fallbacks.
+
 ## [0.6.0] - 2026-09-06
 
 ### Added

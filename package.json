@@ -38,6 +38,6 @@
   "author": "AJ Caylor",
   "license": "MIT",
   "dependencies": {
-    "three": "^0.185.1"
+    "three": "^0.186.0"
   }
 }

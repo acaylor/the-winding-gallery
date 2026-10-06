@@ -10,6 +10,8 @@ whatever stands in **Unreleased**.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-06
+
 ### Changed
 
 - Rebuilt the island silhouettes and pine crowns, added a shared limestone
@@ -266,7 +268,8 @@ whatever stands in **Unreleased**.
   versions, npm publishing via OIDC trusted publishing, and the official
   site on GitHub Pages.
 
-[Unreleased]: https://github.com/acaylor/the-winding-gallery/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/acaylor/the-winding-gallery/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/acaylor/the-winding-gallery/compare/v0.3.0...v0.4.0

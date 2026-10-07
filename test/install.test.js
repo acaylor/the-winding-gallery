@@ -58,7 +58,15 @@ test('the packed tarball installs and serves the app end to end', { timeout: 120
         '/vendor/three/three.core.js',
         '/vendor/three-addons/loaders/GLTFLoader.js',
         '/assets/lantern-slim.glb',
+        '/assets/gallery-arch.glb',
+        '/assets/gallery-waygate.glb',
+        '/assets/gallery-paving.glb',
+        '/assets/gallery-pines.glb',
+        '/assets/gallery-islands.glb',
+        '/assets/gallery-frame-corner.glb',
         '/assets/paving-color.jpg',
+        '/assets/limestone-color.png',
+        '/assets/limestone-roughness.png',
       ]) {
         const res = await fetch(`${base}${p}`);
         assert.equal(res.status, 200, `${p} serves from the installed package`);

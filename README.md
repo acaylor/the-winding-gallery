@@ -38,10 +38,10 @@ place you can *walk through*:
   dissolved behind you, winding and gently climbing forever. When the
   collection runs out, it begins again — the gallery never ends.
 - **A place, not a page.** Real CC0 surfaces (mossy cobblestones, rock,
-  bark from [ambientCG](https://ambientcg.com)), Poly Haven photoscanned
+  bark from [ambientCG](https://ambientcg.com)), Blender-authored layered
   islands and original Blender-authored bronze lanterns and carved pedestals — under moonlight and
   moon-shadow, blooming lantern flames, an aurora and a milky-way band,
-  fireflies, windswept mountain pines grown procedurally on the drifting
+  fireflies, windswept Blender mountain pines with distance-based detail on the drifting
   islands, and a breathing sea of moonlit cloud below the path.
 - **Wings & waygates.** Subfolders become *wings* of the gallery: each
   hangs together on the path, announced by a stone waygate carved with

@@ -22,7 +22,7 @@
   "engines": {
     "node": ">=22"
   },
-  "packageManager": "pnpm@12.6.0",
+  "packageManager": "pnpm@12.14.0",
   "keywords": [
     "photo-gallery",
     "three.js",
@@ -38,6 +38,6 @@
   "author": "AJ Caylor",
   "license": "MIT",
   "dependencies": {
-    "three": "^0.185.1"
+    "three": "^0.186.1"
   }
 }

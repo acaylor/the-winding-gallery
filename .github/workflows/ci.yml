@@ -10,9 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # 24 is the recommended LTS; 22 proves the supported floor
-        # (Node 20 is EOL, and pnpm 11 needs ≥ 22.13)
-        node-version: [22, 24]
+        # 26 is the recommended LTS; 22 proves the supported floor.
+        node-version: [22, 24, 26]
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6

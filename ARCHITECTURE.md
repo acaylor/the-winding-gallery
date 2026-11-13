@@ -30,14 +30,14 @@ edit is what runs.
 
 | Layer | Choice | Why |
 | --- | --- | --- |
-| Runtime | Node ≥ 22 (24 LTS recommended, `.node-version`) | Node 24 is the recommended development runtime |
-| Rendering | three.js r185 (only dependency) | WebGL scene graph; served from `node_modules`, resolved via `createRequire()` so npm hoisting can't break it |
+| Runtime | Node ≥ 22 (26 LTS recommended, `.node-version`) | Node 26 is the recommended development runtime |
+| Rendering | three.js r187 (only dependency) | WebGL scene graph; served from `node_modules`, resolved via `createRequire()` so npm hoisting can't break it |
 | Post-processing | three.js `EffectComposer` + `UnrealBloomPass` | HDR bloom on a multisampled half-float target; sky-baked PMREM environment; moon shadows; `?quality=low` opts out |
 | Server | `node:http`, hand-rolled routes | ~150 lines; no framework to version-manage |
 | Package manager | pnpm 12 (`packageManager` field) | fast, strict, content-addressed store |
 | Tests | `node --test` | zero test-framework dependencies |
 | E2E harness | Chrome DevTools Protocol scripts | headless Chrome suspends rAF; CDP screenshot-pumping drives frames, `window.__winding()` exposes state |
-| CI/CD | GitHub Actions | CI matrix (Node 22/24) · Pages deploy from `docs/` · tag-triggered npm publish |
+| CI/CD | GitHub Actions | CI matrix (Node 22/24/26) · Pages deploy from `docs/` · tag-triggered npm publish |
 | Publishing | npm **trusted publishing** (OIDC) | tokenless, provenance-attested; prereleases → `next`, stable → `latest`; release notes from `CHANGELOG.md` |
 | Assets | CC0 only (`ASSETS.md`) | ambientCG PBR textures, Khronos lantern slimmed 9.6 MB → 271 KB via glTF-Transform |
 
@@ -112,7 +112,7 @@ Four rings, cheapest first:
 ## Release pipeline
 
 ```
-branch → PR (ci.yml: Node 22 + 24)
+branch → PR (ci.yml: Node 22 + 24 + 26)
   └─ tag vX.Y.Z-rc.N  → publish.yml → npm dist-tag "next"   + GitHub prerelease
 merge → main
   └─ tag vX.Y.Z       → publish.yml → npm dist-tag "latest" + GitHub release

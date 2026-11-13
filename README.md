@@ -16,9 +16,9 @@ as you go.
 [![CI](https://github.com/acaylor/the-winding-gallery/actions/workflows/ci.yml/badge.svg)](https://github.com/acaylor/the-winding-gallery/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/the-winding-gallery?color=6e9b46&label=npm&logo=npm)](https://www.npmjs.com/package/the-winding-gallery)
 [![License: MIT](https://img.shields.io/badge/License-MIT-e0b64a.svg)](LICENSE)
-![Node](https://img.shields.io/badge/node-24%20LTS-339933?logo=node.js&logoColor=white)
+![Node](https://img.shields.io/badge/node-26%20LTS-339933?logo=node.js&logoColor=white)
 ![pnpm](https://img.shields.io/badge/pnpm-12-f69220?logo=pnpm&logoColor=white)
-![Three.js](https://img.shields.io/badge/three.js-r185-8b5cf6)
+![Three.js](https://img.shields.io/badge/three.js-r187-8b5cf6)
 
 <img src="https://acaylor.github.io/the-winding-gallery/screenshots/the-path.jpg" alt="The winding cobblestone causeway at night above a sea of moonlit mist, plates glowing along the path" width="820">
 
@@ -59,7 +59,7 @@ place you can *walk through*:
 
 ## 🚀 Quick start
 
-Requires Node ≥ 22 — **Node 24 LTS recommended** (`.node-version` is set
+Requires Node ≥ 22 — **Node 26 LTS recommended** (`.node-version` is set
 for fnm/asdf/mise). Development uses [pnpm](https://pnpm.io).
 
 ```sh

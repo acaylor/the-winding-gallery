@@ -10,6 +10,12 @@ whatever stands in **Unreleased**.
 
 ## [Unreleased]
 
+### Changed
+
+- Updated Three.js to 0.187.0 and pnpm to 12.18.0.
+- Recommend Node 26 LTS for development and use it for Pages screenshots and
+  npm publishing. CI covers Node 22, 24, and 26; the minimum remains Node 22.
+
 ## [0.7.0] - 2026-10-06
 
 ### Changed
